@@ -83,7 +83,14 @@ jobs:
           set -euo pipefail
           cd main
           chmod +x scripts/*.sh build.sh modules/build-dev.sh || true
-          test -f "packages/com.burbn.instagram.ipa"
+          
+          # Skip IPA build if decrypted Instagram IPA is not available
+          if [ ! -f "packages/com.burbn.instagram.ipa" ]; then
+            echo "⚠️  Skipping IPA build: decrypted Instagram IPA not found in packages/"
+            echo "   To build IPA locally, place com.burbn.instagram.ipa in the packages/ folder"
+            exit 0
+          fi
+          
           ./scripts/setup-ffmpegkit.sh
           ./build.sh noplugins
           mkdir -p release
@@ -104,4 +111,4 @@ jobs:
         with:
           name: Ryukgram-1.3.3.${{ github.run_number }}-ipa
           path: main/release/Ryukgram-1.3.3.${{ github.run_number }}.ipa
-          if-no-files-found: error
+          if-no-files-found: ignore
