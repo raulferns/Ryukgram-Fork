@@ -21,6 +21,7 @@ BOOL dmVisualMsgsViewedButtonEnabled = false;
 
 // Liquid Glass — per-feature flags (iOS 26 visual API).
 // Buttons & notifications:
+
 static BOOL sLG_InAppNotif = NO;
 static BOOL sLG_Toast = NO;
 static BOOL sLG_EaseInOutBlur = NO;
