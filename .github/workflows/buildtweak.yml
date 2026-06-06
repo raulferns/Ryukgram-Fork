@@ -26,9 +26,9 @@ jobs:
         with:
           path: main
 
-      - run: brew install ldid dpkg make zip
+      - run: brew install ldid dpkg make zip pipx
       - run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
-      - run: pip3 install --upgrade --force-reinstall https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+      - run: pipx install --force-reinstall https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - uses: actions/checkout@v4
         with:
