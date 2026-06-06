@@ -78,6 +78,14 @@ jobs:
           THEOS_PLATFORM_DEB_COMPRESSION_TYPE: lzma
           THEOS_PLATFORM_DEB_COMPRESSION_LEVEL: 9
 
+      - name: Download base Instagram IPA
+        run: |
+          set -euo pipefail
+          cd main/packages
+          gh release download instagram-base --pattern "*.ipa" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build noplugins IPA
         run: |
           set -euo pipefail
@@ -100,6 +108,7 @@ jobs:
           ls -la release
         env:
           THEOS: ${{ github.workspace }}/theos
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         with:
