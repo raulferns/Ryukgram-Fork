@@ -2,9 +2,13 @@ name: Build RyukGram tweak
 
 on:
   push:
-    branches: [experimental, experiments2]
+    branches:
+      - experimental
+      - experiments2
   pull_request:
-    branches: [experimental, experiments2]
+    branches:
+      - experimental
+      - experiments2
   workflow_dispatch:
 
 concurrency:
@@ -26,8 +30,9 @@ jobs:
         with:
           path: main
 
-      - run: brew install ldid dpkg make zip
+      - run: brew install ldid dpkg make zip pipx
       - run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+      - run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - uses: actions/checkout@v4
         with:
@@ -56,7 +61,7 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
 
-      - name: Validate SDK 26.2 and build rootless arm64
+      - name: Validate SDK 26.2 and prepare
         run: |
           set -euo pipefail
           cd main
@@ -66,19 +71,62 @@ jobs:
           grep -q 'TARGET := iphone:clang:26.2:16.3' Makefile
           grep -q '^ARCHS = arm64$' Makefile
           ./scripts/setup-ffmpegkit.sh
-          ./build.sh rootless
+          echo "Skipping deb build in CI; building IPA only."
+        env:
+          THEOS: ${{ github.workspace }}/theos
+
+      - name: Download base Instagram IPA (via GitHub API)
+        run: |
+          set -euo pipefail
+          cd main/packages
+
+          owner=raulferns
+          repo=Ryukgram-Fork
+          tag=v1.2.3
+
+          api="https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}"
+          echo "Fetching release ${tag} from ${owner}/${repo}"
+
+            release_json=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" "$api") || true
+
+            asset_url=$(echo "$release_json" | python3 -c 'import sys,json; d=json.load(sys.stdin or "{}" ); print(next((a.get("browser_download_url","") for a in d.get("assets",[]) if a.get("name","" ).endswith(".ipa")), ""))')
+
+          if [ -z "$asset_url" ]; then
+            echo "No IPA asset found for release ${tag}; skipping IPA download/build"
+            exit 0
+          fi
+
+          echo "Downloading IPA from: $asset_url"
+          curl -L -H "Authorization: token ${GITHUB_TOKEN}" -o "$(basename "$asset_url")" "$asset_url"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build noplugins IPA
+        run: |
+          set -xeuo pipefail
+          cd main
+          chmod +x scripts/*.sh build.sh modules/build-dev.sh || true
+          
+          # Skip IPA build if decrypted Instagram IPA is not available
+          if [ ! -f "packages/com.burbn.instagram.ipa" ]; then
+            echo "⚠️  Skipping IPA build: decrypted Instagram IPA not found in packages/"
+            echo "   To build IPA locally, place com.burbn.instagram.ipa in the packages/ folder"
+            exit 0
+          fi
+          
+          ./scripts/setup-ffmpegkit.sh
+          ./build.sh noplugins
           mkdir -p release
-          DEB="$(ls -t packages/*rootless*.deb packages/*.deb 2>/dev/null | head -n 1)"
-          test -n "$DEB"
-          cp "$DEB" "release/${OUTPUT_BASENAME}.deb"
+          IPA="$( { ls -t packages/*noplugins*.ipa packages/*sideloaded*.ipa packages/*.ipa 2>/dev/null || true; } | head -n 1)"
+          test -n "$IPA"
+          cp "$IPA" "release/${OUTPUT_BASENAME}.ipa"
           ls -la release
         env:
           THEOS: ${{ github.workspace }}/theos
-          THEOS_PLATFORM_DEB_COMPRESSION_TYPE: lzma
-          THEOS_PLATFORM_DEB_COMPRESSION_LEVEL: 9
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Ryukgram-1.3.3.${{ github.run_number }}
-          path: main/release/Ryukgram-1.3.3.${{ github.run_number }}.deb
-          if-no-files-found: error
+          name: Ryukgram-1.3.3.${{ github.run_number }}-ipa
+          path: main/release/Ryukgram-1.3.3.${{ github.run_number }}.ipa
+          if-no-files-found: ignore
