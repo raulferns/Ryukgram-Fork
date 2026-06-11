@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - experimental
-      - experiments2
+      - experiment2
   pull_request:
     branches:
       - experimental
-      - experiments2
+      - experiment2
   workflow_dispatch:
 
 concurrency:
@@ -97,7 +97,7 @@ jobs:
           fi
 
           echo "Downloading IPA from: $asset_url"
-          curl -L -H "Authorization: token ${GITHUB_TOKEN}" -o "$(basename "$asset_url")" "$asset_url"
+          curl -L -H "Authorization: token ${GITHUB_TOKEN}" -o "com.burbn.instagram.ipa" "$asset_url"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -107,10 +107,15 @@ jobs:
           cd main
           chmod +x scripts/*.sh build.sh modules/build-dev.sh || true
           
+          # Find any downloaded base IPA in the packages folder and rename it to com.burbn.instagram.ipa if it isn't already
+          FOUND_IPA=$(find packages -maxdepth 1 -type f -name "*.ipa" ! -name "RyukGram*" ! -name "Ryukgram*" | head -n 1)
+          if [ -n "$FOUND_IPA" ] && [ "$FOUND_IPA" != "packages/com.burbn.instagram.ipa" ]; then
+            mv "$FOUND_IPA" "packages/com.burbn.instagram.ipa"
+          fi
+          
           # Skip IPA build if decrypted Instagram IPA is not available
           if [ ! -f "packages/com.burbn.instagram.ipa" ]; then
             echo "⚠️  Skipping IPA build: decrypted Instagram IPA not found in packages/"
-            echo "   To build IPA locally, place com.burbn.instagram.ipa in the packages/ folder"
             exit 0
           fi
           
