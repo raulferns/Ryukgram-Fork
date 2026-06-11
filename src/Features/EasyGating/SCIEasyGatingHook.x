@@ -157,7 +157,6 @@ void SCIInstallEasyGatingHooksIfNeeded(void) {
 
 %ctor {
     @autoreleasepool {
-        // Startup-safe: do not install persisted EasyGating fishhooks from launch.
-        // SCIInstallEasyGatingHooksIfNeeded() is called only by an explicit Settings toggle.
+        SCIInstallEasyGatingHooksIfNeeded();
     }
 }

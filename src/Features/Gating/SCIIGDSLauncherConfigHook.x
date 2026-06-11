@@ -40,7 +40,6 @@ static volatile BOOL sLGIconBarButton = NO;
 static volatile BOOL sLGNavStylePinning = NO;
 static volatile BOOL sLGEaseInOut = NO;
 static volatile BOOL sLGCGBlur = NO;
-static volatile BOOL sLGGlyphOpt = NO;
 static volatile BOOL sLGDebugger = NO;
 static volatile BOOL sLGContextMenu = NO;
 
@@ -48,10 +47,7 @@ static volatile BOOL sLGContextMenu = NO;
 static volatile BOOL sNavRounded = NO;
 static volatile BOOL sTransitionZoom = NO;
 static volatile BOOL sNativeBottomsheet = NO;
-static volatile BOOL sAnimatedWaveform = NO;
 static volatile BOOL sAsyncFont = NO;
-static volatile BOOL sDirectChannels = NO;
-static volatile BOOL sPageVCFix = NO;
 
 // Wordmark cache. These are mutually exclusive at the UI level, but the hook
 // keeps them as independent BOOLs because the underlying IGDS getters are independent.
@@ -70,16 +66,12 @@ static BOOL ForceLGIconBarButton(void) { return ForceLiquidGlass() || sLGIconBar
 static BOOL ForceLGNavStylePinning(void) { return ForceLiquidGlass() || sLGNavStylePinning; }
 static BOOL ForceLGEaseInOut(void) { return ForceLiquidGlass() || sLGEaseInOut; }
 static BOOL ForceLGCGBlur(void) { return ForceLiquidGlass() || sLGCGBlur; }
-static BOOL ForceLGGlyphOpt(void) { return ForceLiquidGlass() || sLGGlyphOpt; }
 static BOOL ForceLGDebugger(void) { return ForceLiquidGlass() || sLGDebugger; }
 static BOOL ForceLGContextMenu(void) { return ForceLiquidGlass() || sLGContextMenu; }
 static BOOL ForceNavRounded(void) { return sAll || sNavRounded; }
 static BOOL ForceTransitionZoom(void) { return sAll || sTransitionZoom; }
 static BOOL ForceNativeBottomsheet(void) { return sAll || sNativeBottomsheet; }
-static BOOL ForceAnimatedWaveform(void) { return sAll || sAnimatedWaveform; }
 static BOOL ForceAsyncFont(void) { return sAll || sAsyncFont; }
-static BOOL ForceDirectChannels(void) { return sAll || sDirectChannels; }
-static BOOL ForcePageVCFix(void) { return sAll || sPageVCFix; }
 static BOOL ForceWordmark1a(void) { return sWordmark1a; }
 static BOOL ForceWordmark1aAlt(void) { return sWordmark1aAlt; }
 static BOOL ForceWordmark1b(void) { return sWordmark1b; }
@@ -99,17 +91,13 @@ static void IGDSReadPrefs(void) {
     sLGNavStylePinning = [ud boolForKey:@"sci_igds_lg_navstylepin"];
     sLGEaseInOut = [ud boolForKey:@"sci_igds_lg_easeinout"];
     sLGCGBlur = [ud boolForKey:@"sci_igds_lg_cgblur"];
-    sLGGlyphOpt = [ud boolForKey:@"sci_igds_lg_glyphopt"];
     sLGDebugger = [ud boolForKey:@"sci_igds_lg_debugger"];
     sLGContextMenu = [ud boolForKey:@"sci_igds_nav_ctxmenu"];
 
     sNavRounded = [ud boolForKey:@"sci_igds_nav_rounded"];
     sTransitionZoom = [ud boolForKey:@"sci_igds_nav_tzoom"];
     sNativeBottomsheet = [ud boolForKey:@"sci_igds_nav_bottomsheet"];
-    sAnimatedWaveform = [ud boolForKey:@"sci_igds_animated_waveform"];
     sAsyncFont = [ud boolForKey:@"sci_igds_async_font"];
-    sDirectChannels = [ud boolForKey:@"sci_igds_direct_channels"];
-    sPageVCFix = [ud boolForKey:@"sci_igds_pagevc_fix"];
 
     sWordmark1a = [ud boolForKey:@"sci_igds_wordmark_isIGWordmark1aEnabled"];
     sWordmark1aAlt = [ud boolForKey:@"sci_igds_wordmark_isIGWordmark1aAltEnabled"];
@@ -126,10 +114,10 @@ static void IGDSReadPrefs(void) {
 static BOOL IGDSAnyPrefEnabled(void) {
     return sAll || sLiquidGlass || sPrism ||
            sLGInAppNotification || sLGToast || sLGToastPeek || sLGIconBarButton ||
-           sLGNavStylePinning || sLGEaseInOut || sLGCGBlur || sLGGlyphOpt ||
+           sLGNavStylePinning || sLGEaseInOut || sLGCGBlur ||
            sLGDebugger || sLGContextMenu || sNavRounded || sTransitionZoom ||
-           sNativeBottomsheet || sAnimatedWaveform || sAsyncFont ||
-           sDirectChannels || sPageVCFix || sWordmark1a || sWordmark1aAlt ||
+           sNativeBottomsheet || sAsyncFont ||
+           sWordmark1a || sWordmark1aAlt ||
            sWordmark1b || sWordmark1bAlt;
 }
 
@@ -178,9 +166,11 @@ static void IGDSInstall(void) {
         return;
     }
 
-    HookBoolGetter(cls, "isLiquidGlassEnabled", ForceLiquidGlass);
-    HookBoolGetter(cls, "_isLiquidGlassEnabled", ForceLiquidGlass);
-    HookBoolGetter(cls, "isLiquidGlassToggleEnabled", ForceLiquidGlass);
+    // Base launcher gates (only forced by the master "Ativar tudo" switch).
+    HookBoolGetter(cls, "canSupportLauncher", ForceAll);
+    HookBoolGetter(cls, "isEligibleForLaunch", ForceAll);
+
+    // LiquidGlass: this build exposes no master getter, only the specific ones.
     HookBoolGetter(cls, "isLiquidGlassInAppNotificationEnabled", ForceLGInAppNotification);
     HookBoolGetter(cls, "isLiquidGlassToastEnabled", ForceLGToast);
     HookBoolGetter(cls, "isLiquidGlassToastPeekEnabled", ForceLGToastPeek);
@@ -188,37 +178,43 @@ static void IGDSInstall(void) {
     HookBoolGetter(cls, "isLiquidGlassNavigationContentStylePinningEnabled", ForceLGNavStylePinning);
     HookBoolGetter(cls, "isLiquidGlassEaseInOutBlurEnabled", ForceLGEaseInOut);
     HookBoolGetter(cls, "isLiquidGlassCGContextBlurEnabled", ForceLGCGBlur);
-    HookBoolGetter(cls, "isOptimizeLiquidGlassGlyphRenderingEnabled", ForceLGGlyphOpt);
     HookBoolGetter(cls, "canUseInternalLiquidGlassDebugger", ForceLGDebugger);
     HookBoolGetter(cls, "isContextMenuMigrationEnabled", ForceLGContextMenu);
 
-    HookBoolGetter(cls, "_isPrismEnabled", ForcePrism);
-    HookBoolGetter(cls, "_isPrismDesignEnabled", ForcePrism);
+    // Prism: no master getter on this build either; hook every real Prism getter
+    // so the "Prism" group / "Ativar tudo" actually flips the whole surface.
     HookBoolGetter(cls, "isPrismControlsEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismDefaultTooltipEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismToastsEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismAlertDialogEnabled", ForcePrism);
-    HookBoolGetter(cls, "_isPrismAvatarRingEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismAvatarRingEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismContextMenuEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismContextMenuRefactorEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismIndigoButtonEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismIndigoButtonM1DirectEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismIndigoActionCellsEnabled", ForcePrism);
     HookBoolGetter(cls, "isIGBPrismEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismOverflowMenuEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismOverflowMenuStampWidthIncreased", ForcePrism);
     HookBoolGetter(cls, "isPrismBottomSheetEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismCreationIconsEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismMediaButtonsEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismCommentsEmptyStateEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismAllUserAssetsEnabled", ForcePrism);
     HookBoolGetter(cls, "isPrismFollowRelatedUserAssetsEnabled", ForcePrism);
     HookBoolGetter(cls, "_isPrismSecondaryNonUserIconsEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismDividersUpdateEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismDividersCommentsUpdateEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismDividersEditReelEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismDividersNotificationsUpdateEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismDividersProfileUpdateEnabled", ForcePrism);
+    HookBoolGetter(cls, "isPrismDividersShareSheetUpdateEnabled", ForcePrism);
 
     HookBoolGetter(cls, "isNavPushRoundedCornersEnabled", ForceNavRounded);
     HookBoolGetter(cls, "isTransitionZoomCustomizationEnabled", ForceTransitionZoom);
     HookBoolGetter(cls, "isNativeBottomsheetForiPhoneEnabled", ForceNativeBottomsheet);
     HookBoolGetter(cls, "isNativeBottomsheetForiPhoneOnAllSurfacesEnabled", ForceNativeBottomsheet);
-    HookBoolGetter(cls, "isAnimatedWaveformVoiceEntrypointEnabled", ForceAnimatedWaveform);
     HookBoolGetter(cls, "isAsyncFontRegistrationEnabled", ForceAsyncFont);
-    HookBoolGetter(cls, "isDirectChannelsMigrationEnabled", ForceDirectChannels);
-    HookBoolGetter(cls, "isPageVCLayoutInvalidationFixEnabled", ForcePageVCFix);
 
     HookBoolGetter(cls, "isIGWordmark1aEnabled", ForceWordmark1a);
     HookBoolGetter(cls, "isIGWordmark1aAltEnabled", ForceWordmark1aAlt);

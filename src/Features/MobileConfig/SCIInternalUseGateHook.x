@@ -119,7 +119,6 @@ void SCIInstallMobileConfigInternalUseGateIfNeeded(void) {
 
 %ctor {
     @autoreleasepool {
-        // Startup-safe: do not install persisted MobileConfig/internal-use fishhooks from launch.
-        // SCIInstallMobileConfigInternalUseGateIfNeeded() is called only by an explicit Settings toggle.
+        SCIInstallMobileConfigInternalUseGateIfNeeded();
     }
 }

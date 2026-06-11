@@ -93,16 +93,15 @@ static void SCIInstallInternalMenuHook(void) {
     SCIHookBoolGetter(C, @selector(showDogfoodingAssistant), (IMP)sci_showAssistant, (IMP *)&sOrigShowAssistant);
 }
 
+
+void SCIInstallInternalSettingsMenuHookIfNeeded(void) {
+    if (!SCIInternalMenuEnabled()) return;
+    [SCIInternalGatePrefs installCrashGuardIfNeeded];
+    SCIInstallInternalMenuHook();
+}
+
 %ctor {
     @autoreleasepool {
-        if (!SCIInternalMenuEnabled()) return;
-        [SCIInternalGatePrefs installCrashGuardIfNeeded];
-        SCIInstallInternalMenuHook();
-        double delays[] = {1.0, 3.0, 6.0, 10.0};
-        for (NSUInteger i = 0; i < sizeof(delays) / sizeof(delays[0]); i++) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delays[i] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                SCIInstallInternalMenuHook();
-            });
-        }
+        SCIInstallInternalSettingsMenuHookIfNeeded();
     }
 }

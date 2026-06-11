@@ -36,7 +36,8 @@ static NSString *const kSCIForceStoryUnderlayKey = @"sci_force_ig_story_debug_un
 #define SCILOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] " fmt, ##__VA_ARGS__)
 
 static inline BOOL SCIForceGateOn(NSString *key) {
-    return [SCIInternalGatePrefs objCGateEnabledForKey:key];
+    return [SCIInternalGatePrefs objCGateEnabledForKey:kSCIForceEmployeeKey] ||
+           [SCIInternalGatePrefs objCGateEnabledForKey:key];
 }
 
 #define SCI_BOOL_HOOK(NAME, KEY) \
@@ -154,24 +155,15 @@ static void SCIInstallAllGates(void) {
                  (IMP)new_storyUnderlay, (IMP *)&orig_storyUnderlay);
 }
 
+void SCIInstallIGEmployeeForceHooksIfNeeded(void) {
+    if (!SCIAnyEmployeeForcePrefEnabled()) return;
+    [SCIInternalGatePrefs installCrashGuardIfNeeded];
+    [SCIEmployeeDefaults installHooksIfNeeded];
+    SCIInstallAllGates();
+}
+
 %ctor {
     @autoreleasepool {
-        if (!SCIAnyEmployeeForcePrefEnabled()) return;
-        [SCIInternalGatePrefs installCrashGuardIfNeeded];
-        // Defer off static-init: see SCIEasyGatingHook.x for full explanation.
-        __block id _sciTok = [[NSNotificationCenter defaultCenter]
-            addObserverForName:@"UIApplicationDidBecomeActiveNotification"
-                        object:nil queue:[NSOperationQueue mainQueue]
-                    usingBlock:^(__unused NSNotification *note) {
-            if (_sciTok) { [[NSNotificationCenter defaultCenter] removeObserver:_sciTok]; _sciTok = nil; }
-            double delays[] = {0.5, 2.0, 5.0};
-            for (NSUInteger i = 0; i < sizeof(delays)/sizeof(delays[0]); i++) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delays[i]*NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), ^{
-                    [SCIEmployeeDefaults installHooksIfNeeded];
-                    SCIInstallAllGates();
-                });
-            }
-        }];
+        SCIInstallIGEmployeeForceHooksIfNeeded();
     }
 }

@@ -135,7 +135,6 @@ void SCIInstallSessionedMCGateHooksIfNeeded(void) {
 
 %ctor {
     @autoreleasepool {
-        // Startup-safe: do not install persisted Sessioned/MCI fishhooks from launch.
-        // SCIInstallSessionedMCGateHooksIfNeeded() is called only by an explicit Settings toggle.
+        SCIInstallSessionedMCGateHooksIfNeeded();
     }
 }
