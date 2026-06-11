@@ -33,19 +33,25 @@ static NSString *const kWordmarkKey = @"sci_ig_wordmark_variant";
 
     // ① IGDSLauncherConfig — ObjC, instance methods, 11 flags
     //    Confirmados via __objc_methname scan de FBSharedFramework
+    // NOTE (SCI-FIX 2026-06-11): selectors verified against the *class method list*
+    // of IGDSLauncherConfig (IGDSLauncherConfig_FULL_header.c / real-getters dump),
+    // NOT against global strings/xrefs. The following three were marked "confirmado"
+    // but are NOT methods of IGDSLauncherConfig in build 433.0.283 — they exist as
+    // selector strings elsewhere in the image but resolve to nil on this class, so
+    // setRuntimeBoolOverride: was a silent no-op. Removed:
+    //   - isLiquidGlassEnabled
+    //   - isLiquidGlassToggleEnabled
+    //   - isOptimizeLiquidGlassGlyphRenderingEnabled
     NSString *ds = @"IGDSLauncherConfig";
     for (NSString *s in @[
         @"canUseInternalLiquidGlassDebugger",
         @"isLiquidGlassCGContextBlurEnabled",
         @"isLiquidGlassEaseInOutBlurEnabled",
-        @"isLiquidGlassEnabled",                         // confirmado
         @"isLiquidGlassIconBarButtonEnabled",
         @"isLiquidGlassInAppNotificationEnabled",
         @"isLiquidGlassNavigationContentStylePinningEnabled",
         @"isLiquidGlassToastEnabled",
         @"isLiquidGlassToastPeekEnabled",
-        @"isLiquidGlassToggleEnabled",                   // confirmado
-        @"isOptimizeLiquidGlassGlyphRenderingEnabled",
     ]) { on ? SRBO(ds, s, NO, YES) : CRBO(ds, s, NO); }
 
     // ② IGDSAlertDialogLiquidGlass — Swift, CLASS method +isEnabled

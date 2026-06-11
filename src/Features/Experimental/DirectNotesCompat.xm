@@ -52,7 +52,14 @@ static BOOL new_isIn(id self, SEL _cmd, id name) {
     };
     rebind_symbols(binds, sizeof(binds) / sizeof(binds[0]));
 
-    Class helper = NSClassFromString(@"IGDirectNotesExperimentHelper");
+    // SCI-FIX 2026-06-11: class `IGDirectNotesExperimentHelper` does NOT exist in
+    // build 433.0.283 (class-name string absent from the image), so this MSHookMessageEx
+    // was a permanent silent no-op. The present class is the Swift exposure helper below
+    // (verified via __objc_classname scan). The C-symbol rebinds above are the primary
+    // lever and are unaffected. `isInExperiment:` is still guarded by class_getInstanceMethod,
+    // so if the selector differs on this class the hook bails cleanly (verify on-device).
+    Class helper = NSClassFromString(@"_TtC37IGDirectNotesExperimentExposureHelper37IGDirectNotesExperimentExposureHelper");
+    if (!helper) helper = NSClassFromString(@"IGDirectNotesExperimentHelper"); // legacy/older builds
     SEL sel = NSSelectorFromString(@"isInExperiment:");
     if (helper && class_getInstanceMethod(helper, sel)) {
         MSHookMessageEx(helper, sel, (IMP)new_isIn, (IMP *)&orig_isIn);

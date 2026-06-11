@@ -15,6 +15,7 @@
 // Method signature confirmed: B40@0:8@16@24@32 (BOOL return, 3 id args).
 
 #import "SCILauncherOverride.h"
+#import "SCIInstallOnce.h"
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -59,9 +60,9 @@ static void sciInstallLauncherClientHook(void) {
 		// retry after a beat on the main queue (FBSharedFramework loads
 		// before our dylib so this is usually unnecessary, but it's cheap).
 		sciInstallLauncherClientHook();
+		// SCI-FIX 2026-06-11: deterministic fallback instead of a +1s timer.
 		if (!orig_overrideLauncher) {
-			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-			               dispatch_get_main_queue(), ^{
+			SCIInstallOnceOnActive(^{
 				if (!orig_overrideLauncher) sciInstallLauncherClientHook();
 			});
 		}

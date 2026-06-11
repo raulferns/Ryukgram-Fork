@@ -40,14 +40,9 @@ static void SCIInstallUserSessionHooks(void) {
                         object:nil queue:[NSOperationQueue mainQueue]
                     usingBlock:^(__unused NSNotification *note) {
             if (_sciTok) { [[NSNotificationCenter defaultCenter] removeObserver:_sciTok]; _sciTok = nil; }
-            double delays[] = {0.5, 2.0, 5.0};
-            for (NSUInteger i=0;i<sizeof(delays)/sizeof(delays[0]);i++) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delays[i]*NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), ^{
-                    [SCIEmployeeDefaults installHooksIfNeeded];
-                    SCIInstallUserSessionHooks();
-                });
-            }
+            // SCI-FIX 2026-06-11: single install at DidBecomeActive; dropped 0.5/2/5s ladder.
+            [SCIEmployeeDefaults installHooksIfNeeded];
+            SCIInstallUserSessionHooks();
         }];
     }
 }

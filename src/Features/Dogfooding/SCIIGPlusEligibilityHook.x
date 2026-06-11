@@ -14,7 +14,8 @@
 // (settings mark requiresRestart), so the forced block can simply return YES and
 // never needs to trampoline the original with its argument list.
 //
-// Named classes only, hooked at %ctor (+cheap retries). No scanning.
+// Named classes only, installed once after UIApplicationDidBecomeActive. No
+// blind dispatch_after retry ladder and no scanning.
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -22,6 +23,7 @@
 #import <os/log.h>
 #import "SCIInternalGatePrefs.h"
 #import "SCIInternalSettingsApplier.h"
+#import "SCIInstallOnce.h"
 
 #define ELOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] IGPlusElig " fmt, ##__VA_ARGS__)
 static inline BOOL ON(NSString *k){ return [SCIInternalGatePrefs individualGateEnabledForKey:@"sci_force_igplus_all"] || [SCIInternalGatePrefs individualGateEnabledForKey:k]; }
@@ -64,10 +66,9 @@ static void install(void) {
 %ctor {
     @autoreleasepool {
         [SCIInternalGatePrefs installCrashGuardIfNeeded];
-        install();
-        double d[] = {2.0, 5.0};
-        for (NSUInteger i=0;i<sizeof(d)/sizeof(d[0]);i++)
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(d[i]*NSEC_PER_SEC)),dispatch_get_main_queue(),^{ install(); });
+        // SCI-FIX 2026-06-11: single deterministic install at DidBecomeActive,
+        // replacing static-init install() + 2s/5s dispatch_after ladder.
+        SCIInstallOnceOnActive(^{ install(); });
         [SCIInternalSettingsApplier scheduleAutoApplyIfEnabled];
     }
 }

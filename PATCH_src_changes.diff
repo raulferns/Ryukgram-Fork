@@ -1,0 +1,316 @@
+diff --git a/src/Features/Dogfooding/SCIDogfoodObjectRuntimeHooks.x b/src/Features/Dogfooding/SCIDogfoodObjectRuntimeHooks.x
+index b05448f..321c1d5 100644
+--- a/src/Features/Dogfooding/SCIDogfoodObjectRuntimeHooks.x
++++ b/src/Features/Dogfooding/SCIDogfoodObjectRuntimeHooks.x
+@@ -183,9 +183,8 @@ static void SCIInstallDogfoodObjectHooks(void) {
+                          queue:[NSOperationQueue mainQueue]
+                     usingBlock:^(__unused NSNotification *note) {
+             if (_sciTok) { [[NSNotificationCenter defaultCenter] removeObserver:_sciTok]; _sciTok = nil; }
++            // SCI-FIX 2026-06-11: single install; dropped redundant 2s/8s dispatch_after retries.
+             SCIInstallDogfoodObjectHooks();
+-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ SCIInstallDogfoodObjectHooks(); });
+-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ SCIInstallDogfoodObjectHooks(); });
+         }];
+     }
+ }
+diff --git a/src/Features/Dogfooding/SCIDogfoodingSettingsPersistenceHooks.x b/src/Features/Dogfooding/SCIDogfoodingSettingsPersistenceHooks.x
+index 4a31a6f..573126f 100644
+--- a/src/Features/Dogfooding/SCIDogfoodingSettingsPersistenceHooks.x
++++ b/src/Features/Dogfooding/SCIDogfoodingSettingsPersistenceHooks.x
+@@ -57,12 +57,9 @@ static void SCIHookDogfoodingSettingsDelegate(Class cls) {
+ %ctor {
+     @autoreleasepool {
+         dispatch_async(dispatch_get_main_queue(), ^{
++            // SCI-FIX 2026-06-11: single install; dropped redundant 2s dispatch_after retry.
+             SCIHookDogfoodingSettingsDelegate(NSClassFromString(@"IGDogfoodingSettings.IGDogfoodingSettingsViewController"));
+             SCIHookDogfoodingSettingsDelegate(NSClassFromString(@"_TtC20IGDogfoodingSettings34IGDogfoodingSettingsViewController"));
+-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+-                SCIHookDogfoodingSettingsDelegate(NSClassFromString(@"IGDogfoodingSettings.IGDogfoodingSettingsViewController"));
+-                SCIHookDogfoodingSettingsDelegate(NSClassFromString(@"_TtC20IGDogfoodingSettings34IGDogfoodingSettingsViewController"));
+-            });
+         });
+     }
+ }
+diff --git a/src/Features/Dogfooding/SCIExperimentalNavHook.x b/src/Features/Dogfooding/SCIExperimentalNavHook.x
+index 284b8f7..2f02cc8 100644
+--- a/src/Features/Dogfooding/SCIExperimentalNavHook.x
++++ b/src/Features/Dogfooding/SCIExperimentalNavHook.x
+@@ -32,6 +32,7 @@
+ #import <objc/message.h>
+ #import <os/log.h>
+ #import "SCIDogfoodObjectRuntime.h"
++#import "SCIInstallOnce.h"
+ 
+ #define NAVLOG(fmt,...) os_log(OS_LOG_DEFAULT,"[SCINavHook] " fmt,##__VA_ARGS__)
+ 
+@@ -201,9 +202,12 @@ static void sciInjectDependencies(id vc) {
+ // ── Bootstrap — auto-aplica LiquidGlass se estava ON no último uso ─────────
+ %ctor {
+     @autoreleasepool {
+-        // Delay: o LiquidGlassHelper só está disponível depois da UI principal carregar
+-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)),
+-                       dispatch_get_main_queue(), ^{
++        // SCI-FIX 2026-06-11: replaced a blind +5s dispatch_after that messaged a
++        // possibly-unrealized Swift helper (LiquidGlass nav) — a deferred-block
++        // EXC_BAD_ACCESS vector — with a single deterministic apply at
++        // UIApplicationDidBecomeActive (UI built, helper realized). Pref gate first.
++        if (![[NSUserDefaults standardUserDefaults] boolForKey:kNavLG]) return;
++        SCIInstallOnceOnActive(^{
+             if ([[NSUserDefaults standardUserDefaults] boolForKey:kNavLG]) {
+                 sciApplyLiquidGlass(YES);
+             }
+diff --git a/src/Features/Dogfooding/SCIIGConsumerSubsHook.x b/src/Features/Dogfooding/SCIIGConsumerSubsHook.x
+index 5b753b7..d1f4024 100644
+--- a/src/Features/Dogfooding/SCIIGConsumerSubsHook.x
++++ b/src/Features/Dogfooding/SCIIGConsumerSubsHook.x
+@@ -10,9 +10,9 @@
+ // subscriber for everything the client renders/decides locally. The server
+ // eligibility QUERY stays server-side, but features read THESE getters.
+ //
+-// TIMING: one known class, ~20 selectors, hooked at %ctor (microseconds) with a
+-// couple of cheap retries in case the class image initializes slightly later.
+-// No class enumeration, no main-thread scanning -> no launch slowness.
++// TIMING: one known class, ~20 selectors, installed once after
++// UIApplicationDidBecomeActive. No blind dispatch_after retry ladder, no class
++// enumeration, no main-thread scanning -> no launch slowness.
+ //
+ // Each getter is gated by its own pref OR the master `sci_force_igplus_all`.
+ 
+@@ -21,6 +21,7 @@
+ #import <substrate.h>
+ #import <os/log.h>
+ #import "SCIInternalGatePrefs.h"
++#import "SCIInstallOnce.h"
+ 
+ #define SCILOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] IGPlus " fmt, ##__VA_ARGS__)
+ static NSString *const kMaster = @"sci_force_igplus_all";
+@@ -111,11 +112,8 @@ static void install(void) {
+     @autoreleasepool {
+         if (!SCIAnyIGPlusPrefEnabled()) return;
+         [SCIInternalGatePrefs installCrashGuardIfNeeded];
+-        install();
+-        double delays[] = {1.0, 3.0, 6.0};
+-        for (NSUInteger i=0;i<sizeof(delays)/sizeof(delays[0]);i++){
+-            double t=delays[i];
+-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(t*NSEC_PER_SEC)),dispatch_get_main_queue(),^{ install(); });
+-        }
++        // SCI-FIX 2026-06-11: single deterministic install at DidBecomeActive,
++        // replacing static-init install() + 1s/3s/6s dispatch_after ladder.
++        SCIInstallOnceOnActive(^{ install(); });
+     }
+ }
+diff --git a/src/Features/Dogfooding/SCIIGPlusEligibilityHook.x b/src/Features/Dogfooding/SCIIGPlusEligibilityHook.x
+index 27d64ff..413bd04 100644
+--- a/src/Features/Dogfooding/SCIIGPlusEligibilityHook.x
++++ b/src/Features/Dogfooding/SCIIGPlusEligibilityHook.x
+@@ -14,7 +14,8 @@
+ // (settings mark requiresRestart), so the forced block can simply return YES and
+ // never needs to trampoline the original with its argument list.
+ //
+-// Named classes only, hooked at %ctor (+cheap retries). No scanning.
++// Named classes only, installed once after UIApplicationDidBecomeActive. No
++// blind dispatch_after retry ladder and no scanning.
+ 
+ #import <Foundation/Foundation.h>
+ #import <objc/runtime.h>
+@@ -22,6 +23,7 @@
+ #import <os/log.h>
+ #import "SCIInternalGatePrefs.h"
+ #import "SCIInternalSettingsApplier.h"
++#import "SCIInstallOnce.h"
+ 
+ #define ELOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] IGPlusElig " fmt, ##__VA_ARGS__)
+ static inline BOOL ON(NSString *k){ return [SCIInternalGatePrefs individualGateEnabledForKey:@"sci_force_igplus_all"] || [SCIInternalGatePrefs individualGateEnabledForKey:k]; }
+@@ -64,10 +66,9 @@ static void install(void) {
+ %ctor {
+     @autoreleasepool {
+         [SCIInternalGatePrefs installCrashGuardIfNeeded];
+-        install();
+-        double d[] = {2.0, 5.0};
+-        for (NSUInteger i=0;i<sizeof(d)/sizeof(d[0]);i++)
+-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(d[i]*NSEC_PER_SEC)),dispatch_get_main_queue(),^{ install(); });
++        // SCI-FIX 2026-06-11: single deterministic install at DidBecomeActive,
++        // replacing static-init install() + 2s/5s dispatch_after ladder.
++        SCIInstallOnceOnActive(^{ install(); });
+         [SCIInternalSettingsApplier scheduleAutoApplyIfEnabled];
+     }
+ }
+diff --git a/src/Features/Dogfooding/SCIIGUserSessionHook.x b/src/Features/Dogfooding/SCIIGUserSessionHook.x
+index 865a8d0..06f12c3 100644
+--- a/src/Features/Dogfooding/SCIIGUserSessionHook.x
++++ b/src/Features/Dogfooding/SCIIGUserSessionHook.x
+@@ -40,14 +40,9 @@ static void SCIInstallUserSessionHooks(void) {
+                         object:nil queue:[NSOperationQueue mainQueue]
+                     usingBlock:^(__unused NSNotification *note) {
+             if (_sciTok) { [[NSNotificationCenter defaultCenter] removeObserver:_sciTok]; _sciTok = nil; }
+-            double delays[] = {0.5, 2.0, 5.0};
+-            for (NSUInteger i=0;i<sizeof(delays)/sizeof(delays[0]);i++) {
+-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delays[i]*NSEC_PER_SEC)),
+-                               dispatch_get_main_queue(), ^{
+-                    [SCIEmployeeDefaults installHooksIfNeeded];
+-                    SCIInstallUserSessionHooks();
+-                });
+-            }
++            // SCI-FIX 2026-06-11: single install at DidBecomeActive; dropped 0.5/2/5s ladder.
++            [SCIEmployeeDefaults installHooksIfNeeded];
++            SCIInstallUserSessionHooks();
+         }];
+     }
+ }
+diff --git a/src/Features/Dogfooding/SCIInstallOnce.h b/src/Features/Dogfooding/SCIInstallOnce.h
+new file mode 100644
+index 0000000..45bfb6a
+--- /dev/null
++++ b/src/Features/Dogfooding/SCIInstallOnce.h
+@@ -0,0 +1,45 @@
++// SCIInstallOnce.h
++//
++// SCI-FIX 2026-06-11 (crash 433.0.283, EXC_BAD_ACCESS in a deferred GCD block).
++//
++// Single deterministic post-launch install point, replacing the ad-hoc
++// `install(); dispatch_after(+1s); dispatch_after(+3s); dispatch_after(+6s); …`
++// retry ladders that were scattered across the Dogfooding hooks.
++//
++// Why this is safer:
++//   * No hooking during dyld static-init (%ctor runs before UIApplicationMain;
++//     touching NSUserDefaults / ObjC class realization there can intercept reads
++//     inside METARunPreApplicationMain and race the runtime).
++//   * `UIApplicationDidBecomeActive` fires once the UI is built and the vast
++//     majority of ObjC + eagerly-referenced Swift classes are realized.
++//   * No timer source that can outlive a captured object → no message-to-freed.
++//   * Idempotent: self-removing observer + internal guard, safe if the app
++//     foreground/background-cycles.
++//
++// IMPORTANT: install blocks passed here MUST be pointer-safe (NSClassFromString +
++// class_getInstanceMethod + MSHookMessageEx only). Do NOT message captured
++// instances from inside — capture by class name and re-resolve.
++
++#ifndef SCI_INSTALL_ONCE_H
++#define SCI_INSTALL_ONCE_H
++
++#import <Foundation/Foundation.h>
++#import <UIKit/UIKit.h>
++
++static inline void SCIInstallOnceOnActive(void (^block)(void)) {
++    if (!block) return;
++    __block id tok = nil;
++    __block BOOL ran = NO;
++    tok = [[NSNotificationCenter defaultCenter]
++        addObserverForName:UIApplicationDidBecomeActiveNotification
++                    object:nil
++                     queue:[NSOperationQueue mainQueue]
++                usingBlock:^(__unused NSNotification *note) {
++        if (ran) return;
++        ran = YES;
++        if (tok) { [[NSNotificationCenter defaultCenter] removeObserver:tok]; tok = nil; }
++        block();
++    }];
++}
++
++#endif /* SCI_INSTALL_ONCE_H */
+diff --git a/src/Features/Dogfooding/SCILauncherClientHook.x b/src/Features/Dogfooding/SCILauncherClientHook.x
+index 9f4e005..6e81e62 100644
+--- a/src/Features/Dogfooding/SCILauncherClientHook.x
++++ b/src/Features/Dogfooding/SCILauncherClientHook.x
+@@ -15,6 +15,7 @@
+ // Method signature confirmed: B40@0:8@16@24@32 (BOOL return, 3 id args).
+ 
+ #import "SCILauncherOverride.h"
++#import "SCIInstallOnce.h"
+ #import <Foundation/Foundation.h>
+ #import <objc/runtime.h>
+ #import <objc/message.h>
+@@ -59,9 +60,9 @@ static void sciInstallLauncherClientHook(void) {
+ 		// retry after a beat on the main queue (FBSharedFramework loads
+ 		// before our dylib so this is usually unnecessary, but it's cheap).
+ 		sciInstallLauncherClientHook();
++		// SCI-FIX 2026-06-11: deterministic fallback instead of a +1s timer.
+ 		if (!orig_overrideLauncher) {
+-			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+-			               dispatch_get_main_queue(), ^{
++			SCIInstallOnceOnActive(^{
+ 				if (!orig_overrideLauncher) sciInstallLauncherClientHook();
+ 			});
+ 		}
+diff --git a/src/Features/Experimental/DirectNotesCompat.xm b/src/Features/Experimental/DirectNotesCompat.xm
+index c8b65f6..921acbb 100644
+--- a/src/Features/Experimental/DirectNotesCompat.xm
++++ b/src/Features/Experimental/DirectNotesCompat.xm
+@@ -52,7 +52,14 @@ static BOOL new_isIn(id self, SEL _cmd, id name) {
+     };
+     rebind_symbols(binds, sizeof(binds) / sizeof(binds[0]));
+ 
+-    Class helper = NSClassFromString(@"IGDirectNotesExperimentHelper");
++    // SCI-FIX 2026-06-11: class `IGDirectNotesExperimentHelper` does NOT exist in
++    // build 433.0.283 (class-name string absent from the image), so this MSHookMessageEx
++    // was a permanent silent no-op. The present class is the Swift exposure helper below
++    // (verified via __objc_classname scan). The C-symbol rebinds above are the primary
++    // lever and are unaffected. `isInExperiment:` is still guarded by class_getInstanceMethod,
++    // so if the selector differs on this class the hook bails cleanly (verify on-device).
++    Class helper = NSClassFromString(@"_TtC37IGDirectNotesExperimentExposureHelper37IGDirectNotesExperimentExposureHelper");
++    if (!helper) helper = NSClassFromString(@"IGDirectNotesExperimentHelper"); // legacy/older builds
+     SEL sel = NSSelectorFromString(@"isInExperiment:");
+     if (helper && class_getInstanceMethod(helper, sel)) {
+         MSHookMessageEx(helper, sel, (IMP)new_isIn, (IMP *)&orig_isIn);
+diff --git a/src/Features/Experimental/HomecomingCompat.xm b/src/Features/Experimental/HomecomingCompat.xm
+index 4c64f62..d0f4bb2 100644
+--- a/src/Features/Experimental/HomecomingCompat.xm
++++ b/src/Features/Experimental/HomecomingCompat.xm
+@@ -52,12 +52,20 @@ static void hook(Class cls, NSString *selName, IMP newImp, IMP *origOut) {
+ %ctor {
+     if (![SCIUtils getBoolPref:@"igt_homecoming"]) return;
+ 
++    // SCI-FIX 2026-06-11: VERIFIED against build 433.0.283 — only `LIDExperimentGenerator`
++    // is present in this image. `MetaLocalExperiment`, `FamilyLocalExperiment` and
++    // `_TtC18IGNavConfiguration18IGNavConfiguration` are ABSENT (class-name strings not in
++    // the binary), so those three hooks are inert silent no-ops here. They are kept
++    // nil-guarded for older binaries, but on 433 the *only* effective lever below is the
++    // LIDExperimentGenerator -isExperimentEnabled: hook. If Homecoming still does not
++    // surface, the real gate is elsewhere (search the image for the realized config class
++    // that owns -isHomecomingEnabled, 53 xrefs) — do NOT assume these names work.
+     hook(NSClassFromString(@"MetaLocalExperiment"),   @"isInExperiment",
+-         (IMP)new_meta_isIn,   (IMP *)&orig_meta_isIn);
++         (IMP)new_meta_isIn,   (IMP *)&orig_meta_isIn);   // inert on 433 (class absent)
+     hook(NSClassFromString(@"FamilyLocalExperiment"), @"isInExperiment",
+-         (IMP)new_family_isIn, (IMP *)&orig_family_isIn);
++         (IMP)new_family_isIn, (IMP *)&orig_family_isIn); // inert on 433 (class absent)
+     hook(NSClassFromString(@"LIDExperimentGenerator"), @"isExperimentEnabled:",
+-         (IMP)new_lid_enabled, (IMP *)&orig_lid_enabled);
++         (IMP)new_lid_enabled, (IMP *)&orig_lid_enabled); // PRESENT — effective lever
+     hook(NSClassFromString(@"_TtC18IGNavConfiguration18IGNavConfiguration"),
+-         @"isHomecomingEnabled", (IMP)new_nav_isHC, (IMP *)&orig_nav_isHC);
++         @"isHomecomingEnabled", (IMP)new_nav_isHC, (IMP *)&orig_nav_isHC); // inert on 433 (class absent)
+ }
+diff --git a/src/Features/Gating/SCIBulkGatingPresets.m b/src/Features/Gating/SCIBulkGatingPresets.m
+index 77ecb1b..e621bef 100644
+--- a/src/Features/Gating/SCIBulkGatingPresets.m
++++ b/src/Features/Gating/SCIBulkGatingPresets.m
+@@ -33,19 +33,25 @@ static NSString *const kWordmarkKey = @"sci_ig_wordmark_variant";
+ 
+     // ① IGDSLauncherConfig — ObjC, instance methods, 11 flags
+     //    Confirmados via __objc_methname scan de FBSharedFramework
++    // NOTE (SCI-FIX 2026-06-11): selectors verified against the *class method list*
++    // of IGDSLauncherConfig (IGDSLauncherConfig_FULL_header.c / real-getters dump),
++    // NOT against global strings/xrefs. The following three were marked "confirmado"
++    // but are NOT methods of IGDSLauncherConfig in build 433.0.283 — they exist as
++    // selector strings elsewhere in the image but resolve to nil on this class, so
++    // setRuntimeBoolOverride: was a silent no-op. Removed:
++    //   - isLiquidGlassEnabled
++    //   - isLiquidGlassToggleEnabled
++    //   - isOptimizeLiquidGlassGlyphRenderingEnabled
+     NSString *ds = @"IGDSLauncherConfig";
+     for (NSString *s in @[
+         @"canUseInternalLiquidGlassDebugger",
+         @"isLiquidGlassCGContextBlurEnabled",
+         @"isLiquidGlassEaseInOutBlurEnabled",
+-        @"isLiquidGlassEnabled",                         // confirmado
+         @"isLiquidGlassIconBarButtonEnabled",
+         @"isLiquidGlassInAppNotificationEnabled",
+         @"isLiquidGlassNavigationContentStylePinningEnabled",
+         @"isLiquidGlassToastEnabled",
+         @"isLiquidGlassToastPeekEnabled",
+-        @"isLiquidGlassToggleEnabled",                   // confirmado
+-        @"isOptimizeLiquidGlassGlyphRenderingEnabled",
+     ]) { on ? SRBO(ds, s, NO, YES) : CRBO(ds, s, NO); }
+ 
+     // ② IGDSAlertDialogLiquidGlass — Swift, CLASS method +isEnabled

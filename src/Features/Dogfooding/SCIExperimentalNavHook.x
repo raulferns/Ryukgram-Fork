@@ -32,6 +32,7 @@
 #import <objc/message.h>
 #import <os/log.h>
 #import "SCIDogfoodObjectRuntime.h"
+#import "SCIInstallOnce.h"
 
 #define NAVLOG(fmt,...) os_log(OS_LOG_DEFAULT,"[SCINavHook] " fmt,##__VA_ARGS__)
 
@@ -201,9 +202,12 @@ static void sciInjectDependencies(id vc) {
 // ── Bootstrap — auto-aplica LiquidGlass se estava ON no último uso ─────────
 %ctor {
     @autoreleasepool {
-        // Delay: o LiquidGlassHelper só está disponível depois da UI principal carregar
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
+        // SCI-FIX 2026-06-11: replaced a blind +5s dispatch_after that messaged a
+        // possibly-unrealized Swift helper (LiquidGlass nav) — a deferred-block
+        // EXC_BAD_ACCESS vector — with a single deterministic apply at
+        // UIApplicationDidBecomeActive (UI built, helper realized). Pref gate first.
+        if (![[NSUserDefaults standardUserDefaults] boolForKey:kNavLG]) return;
+        SCIInstallOnceOnActive(^{
             if ([[NSUserDefaults standardUserDefaults] boolForKey:kNavLG]) {
                 sciApplyLiquidGlass(YES);
             }

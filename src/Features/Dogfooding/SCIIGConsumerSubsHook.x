@@ -10,9 +10,9 @@
 // subscriber for everything the client renders/decides locally. The server
 // eligibility QUERY stays server-side, but features read THESE getters.
 //
-// TIMING: one known class, ~20 selectors, hooked at %ctor (microseconds) with a
-// couple of cheap retries in case the class image initializes slightly later.
-// No class enumeration, no main-thread scanning -> no launch slowness.
+// TIMING: one known class, ~20 selectors, installed once after
+// UIApplicationDidBecomeActive. No blind dispatch_after retry ladder, no class
+// enumeration, no main-thread scanning -> no launch slowness.
 //
 // Each getter is gated by its own pref OR the master `sci_force_igplus_all`.
 
@@ -21,6 +21,7 @@
 #import <substrate.h>
 #import <os/log.h>
 #import "SCIInternalGatePrefs.h"
+#import "SCIInstallOnce.h"
 
 #define SCILOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] IGPlus " fmt, ##__VA_ARGS__)
 static NSString *const kMaster = @"sci_force_igplus_all";
@@ -111,11 +112,8 @@ static void install(void) {
     @autoreleasepool {
         if (!SCIAnyIGPlusPrefEnabled()) return;
         [SCIInternalGatePrefs installCrashGuardIfNeeded];
-        install();
-        double delays[] = {1.0, 3.0, 6.0};
-        for (NSUInteger i=0;i<sizeof(delays)/sizeof(delays[0]);i++){
-            double t=delays[i];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(t*NSEC_PER_SEC)),dispatch_get_main_queue(),^{ install(); });
-        }
+        // SCI-FIX 2026-06-11: single deterministic install at DidBecomeActive,
+        // replacing static-init install() + 1s/3s/6s dispatch_after ladder.
+        SCIInstallOnceOnActive(^{ install(); });
     }
 }

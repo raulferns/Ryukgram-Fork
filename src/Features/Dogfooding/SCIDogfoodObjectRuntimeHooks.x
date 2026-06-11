@@ -183,9 +183,8 @@ static void SCIInstallDogfoodObjectHooks(void) {
                          queue:[NSOperationQueue mainQueue]
                     usingBlock:^(__unused NSNotification *note) {
             if (_sciTok) { [[NSNotificationCenter defaultCenter] removeObserver:_sciTok]; _sciTok = nil; }
+            // SCI-FIX 2026-06-11: single install; dropped redundant 2s/8s dispatch_after retries.
             SCIInstallDogfoodObjectHooks();
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ SCIInstallDogfoodObjectHooks(); });
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ SCIInstallDogfoodObjectHooks(); });
         }];
     }
 }

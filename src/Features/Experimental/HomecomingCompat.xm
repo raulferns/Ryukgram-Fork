@@ -52,12 +52,20 @@ static void hook(Class cls, NSString *selName, IMP newImp, IMP *origOut) {
 %ctor {
     if (![SCIUtils getBoolPref:@"igt_homecoming"]) return;
 
+    // SCI-FIX 2026-06-11: VERIFIED against build 433.0.283 — only `LIDExperimentGenerator`
+    // is present in this image. `MetaLocalExperiment`, `FamilyLocalExperiment` and
+    // `_TtC18IGNavConfiguration18IGNavConfiguration` are ABSENT (class-name strings not in
+    // the binary), so those three hooks are inert silent no-ops here. They are kept
+    // nil-guarded for older binaries, but on 433 the *only* effective lever below is the
+    // LIDExperimentGenerator -isExperimentEnabled: hook. If Homecoming still does not
+    // surface, the real gate is elsewhere (search the image for the realized config class
+    // that owns -isHomecomingEnabled, 53 xrefs) — do NOT assume these names work.
     hook(NSClassFromString(@"MetaLocalExperiment"),   @"isInExperiment",
-         (IMP)new_meta_isIn,   (IMP *)&orig_meta_isIn);
+         (IMP)new_meta_isIn,   (IMP *)&orig_meta_isIn);   // inert on 433 (class absent)
     hook(NSClassFromString(@"FamilyLocalExperiment"), @"isInExperiment",
-         (IMP)new_family_isIn, (IMP *)&orig_family_isIn);
+         (IMP)new_family_isIn, (IMP *)&orig_family_isIn); // inert on 433 (class absent)
     hook(NSClassFromString(@"LIDExperimentGenerator"), @"isExperimentEnabled:",
-         (IMP)new_lid_enabled, (IMP *)&orig_lid_enabled);
+         (IMP)new_lid_enabled, (IMP *)&orig_lid_enabled); // PRESENT — effective lever
     hook(NSClassFromString(@"_TtC18IGNavConfiguration18IGNavConfiguration"),
-         @"isHomecomingEnabled", (IMP)new_nav_isHC, (IMP *)&orig_nav_isHC);
+         @"isHomecomingEnabled", (IMP)new_nav_isHC, (IMP *)&orig_nav_isHC); // inert on 433 (class absent)
 }

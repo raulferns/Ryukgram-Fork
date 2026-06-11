@@ -57,12 +57,9 @@ static void SCIHookDogfoodingSettingsDelegate(Class cls) {
 %ctor {
     @autoreleasepool {
         dispatch_async(dispatch_get_main_queue(), ^{
+            // SCI-FIX 2026-06-11: single install; dropped redundant 2s dispatch_after retry.
             SCIHookDogfoodingSettingsDelegate(NSClassFromString(@"IGDogfoodingSettings.IGDogfoodingSettingsViewController"));
             SCIHookDogfoodingSettingsDelegate(NSClassFromString(@"_TtC20IGDogfoodingSettings34IGDogfoodingSettingsViewController"));
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                SCIHookDogfoodingSettingsDelegate(NSClassFromString(@"IGDogfoodingSettings.IGDogfoodingSettingsViewController"));
-                SCIHookDogfoodingSettingsDelegate(NSClassFromString(@"_TtC20IGDogfoodingSettings34IGDogfoodingSettingsViewController"));
-            });
         });
     }
 }
