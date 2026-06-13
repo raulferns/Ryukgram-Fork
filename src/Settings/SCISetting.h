@@ -6,6 +6,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, SCITableCell) {
         SCITableCellStatic,
+    SCITableCellCustom,
         SCITableCellLink,
         SCITableCellSwitch,
         SCITableCellStepper,
@@ -23,6 +24,8 @@ typedef NS_ENUM(NSInteger, SCITableCell) {
 @property (nonatomic, strong) NSString *subtitle;
 
 @property (nonatomic, strong, nullable) SCISymbol *icon;
+/// Pre-rendered icon, used instead of  when set.
+@property (nonatomic, strong, nullable) UIImage *iconImage;
 @property (nonatomic, strong) NSString *defaultsKey;
 
 @property (nonatomic, strong) NSURL *url;
@@ -30,6 +33,7 @@ typedef NS_ENUM(NSInteger, SCITableCell) {
 @property (nonatomic, copy, nullable) NSString *bundleImageName;
 
 @property (nonatomic) BOOL requiresRestart;
+@property (nonatomic) BOOL hidesDisclosureIndicator;
 @property (nonatomic) BOOL disabled;
 
 /// What's-new dot identifier for keyless rows; pref rows derive it from defaultsKey.
@@ -58,6 +62,10 @@ typedef NS_ENUM(NSInteger, SCITableCell) {
 /// For hook-driven switch cells: called when the UISwitch is toggled.
 /// When set, the default defaultsKey write is skipped — the block owns all state.
 @property (nonatomic, copy, nullable) void (^onSwitchChange)(BOOL isOn);
+
+/// Custom cell: provider builds it;  (>0) fixes the row height.
+@property (nonatomic) CGFloat customHeight;
+@property (nonatomic, copy, nullable) UITableViewCell *(^customCellProvider)(UITableView *tableView, NSIndexPath *indexPath);
 
 /// Optional trailing label for a static cell. Rendered right-aligned; pairs
 /// with `subtitle` (which still renders beneath the title) when both are set.
@@ -142,6 +150,10 @@ typedef NS_ENUM(NSInteger, SCITableCell) {
 # pragma mark - Instance methods
 
 - (UIMenu *)menuForButton:(UIButton *)button;
+
+
++ (instancetype)customCellWithHeight:(CGFloat)height
+                             provider:(UITableViewCell *(^)(UITableView *tableView, NSIndexPath *indexPath))provider;
 
 @end
 

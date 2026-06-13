@@ -293,6 +293,9 @@
 - (id)title;
 @end
 
+
+@interface IGDirectGIFViewController : IGViewController
+@end
 @interface IGDirectInboxViewController : UIViewController
 @end
 

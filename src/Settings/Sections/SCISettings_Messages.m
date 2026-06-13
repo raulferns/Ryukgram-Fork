@@ -167,7 +167,29 @@
 											@"header": SCILocalized(@"Instants"),
 											@"footer": SCILocalized(@"Tweaks for the QuickSnap / Instants camera surface."),
 											@"rows": @[
-												[SCISetting switchCellWithTitle:SCILocalized(@"Disable instants creation") subtitle:SCILocalized(@"Hides the functionality to create/send instants") defaultsKey:@"disable_instants_creation" requiresRestart:YES],
+												[SCISetting switchCellWithTitle:SCILocalized(@"Keep running in background")
+																										subtitle:SCILocalized(@"Catch view-once media unsent while you're away. ⚠️ May drain battery")
+																										value:^BOOL{ return [SCIUtils getBoolPref:@"deleted_messages_keepalive"]; }
+																										action:^(BOOL on) {
+																										if (!on) {
+																											[NSUserDefaults.standardUserDefaults setBool:NO forKey:@"deleted_messages_keepalive"];
+																											sciDMUpdateKeepAlive();
+																											return;
+																										}
+																										UIAlertController *a = [UIAlertController alertControllerWithTitle:SCILocalized(@"Keep Instagram active in background")
+																											message:SCILocalized(@"Forces Instagram to keep running in the background so it can capture disappearing media that someone unsends while you're not in the app.\n\nMainly useful for view-once media — normal photos/videos are usually still recoverable without it. ⚠️ May significantly drain your battery, and can't capture anything if you force-quit Instagram from the app switcher.\n\nEnable it?")
+																											preferredStyle:UIAlertControllerStyleAlert];
+																										[a addAction:[UIAlertAction actionWithTitle:SCILocalized(@"Cancel") style:UIAlertActionStyleCancel handler:^(UIAlertAction *_) {
+																											[NSUserDefaults.standardUserDefaults setBool:NO forKey:@"deleted_messages_keepalive"];
+																											[NSNotificationCenter.defaultCenter postNotificationName:@"SCISettingsShouldReload" object:nil];
+																										}]];
+																										[a addAction:[UIAlertAction actionWithTitle:SCILocalized(@"Enable") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *_) {
+																											[NSUserDefaults.standardUserDefaults setBool:YES forKey:@"deleted_messages_keepalive"];
+																											sciDMUpdateKeepAlive();
+																										}]];
+																										[sciTopVC() presentViewController:a animated:YES completion:nil];
+																				}],
+				[SCISetting switchCellWithTitle:SCILocalized(@"Disable instants creation") subtitle:SCILocalized(@"Hides the functionality to create/send instants") defaultsKey:@"disable_instants_creation" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Send from gallery") subtitle:SCILocalized(@"Adds a gallery button to the instants camera so you can send a photo from your album") defaultsKey:@"instants_send_from_gallery" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Instants action button") subtitle:SCILocalized(@"Adds a RyukGram action button to the instants viewer header with expand, save, share, and bulk-save entries") defaultsKey:@"instants_download_btn"],
 												({ SCISetting *s = [SCISetting navigationCellWithTitle:SCILocalized(@"Configure menu")

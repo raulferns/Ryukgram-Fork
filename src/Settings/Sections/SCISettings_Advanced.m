@@ -192,18 +192,18 @@
 										},
 										@{
 											@"header": SCILocalized(@"Advanced experimental features"),
-											@"footer": SCILocalized(@"Toggle hidden Instagram experiments. Some may not work on every account or IG version."),
+											@"footer": SCILocalized(@"Toggle hidden Instagram experiments. StatusBarOldSchool and StoryTray take effect at next launch via SCIRuntimeBoolForce (safe, constant block). No restart needed for live session; full effect on next cold launch."),
 											@"rows": @[
 												[self experimentalEntryCell],
 
 											[SCISetting switchCellWithTitle:SCILocalized(@"Status Bar Old School")
 															   subtitle:@""
 															defaultsKey:@"sci_statusbar_oldschool"
-														requiresRestart:YES],
+														requiresRestart:NO],
 											[SCISetting switchCellWithTitle:SCILocalized(@"Story Tray")
 															   subtitle:@""
 															defaultsKey:@"sci_story_tray"
-														requiresRestart:YES],
+														requiresRestart:NO],
 											[SCISetting menuCellWithTitle:SCILocalized(@"Instagram wordmark")
 													 subtitle:@""
 													     menu:[self menus][@"ig_wordmark_variant"]],

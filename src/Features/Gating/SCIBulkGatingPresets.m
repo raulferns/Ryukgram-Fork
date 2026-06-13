@@ -92,7 +92,7 @@ static NSString *const kWordmarkKey = @"sci_ig_wordmark_variant";
 
 + (BOOL)isLiquidGlassActive {
     NSNumber *v = [SCIGatingCatalog runtimeBoolOverrideStateForClass:@"IGDSLauncherConfig"
-                                                            selector:@"isLiquidGlassEnabled"
+                                                            selector:@"isLiquidGlassInAppNotificationEnabled"
                                                          classMethod:NO];
     return v != nil && v.boolValue;
 }

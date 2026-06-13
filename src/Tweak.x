@@ -6,9 +6,11 @@
 #import "Features/General/SCICacheManager.h"
 #import "Features/General/SCIChangelog.h"
 #import "SCITempFiles.h"
+#import "SCIFileLog.h"
 #import "Lock/SCILockManager.h"
 #import "Lock/SCILockGroups.h"
 #import "Features/HiddenChats/SCIHiddenChats.h"
+#import "Features/DeletedMessages/SCIDeletedMessagesCapture.h"
 #include "../modules/fishhook/fishhook.h"
 
 #define SCI_PREF(key) [SCIUtils getBoolPref:key]
@@ -16,7 +18,7 @@
 #define VOID_HANDLESCREENSHOT(orig) do { if (!SCI_SCREENSHOT_BLOCKED) { orig; } } while (0)
 #define NONVOID_HANDLESCREENSHOT(orig) do { if (SCI_SCREENSHOT_BLOCKED) return nil; return orig; } while (0)
 
-NSString *SCIVersionString = @"v1.3.0";
+NSString *SCIVersionString = @"v1.3.1";
 BOOL dmVisualMsgsViewedButtonEnabled = false;
 
 // Liquid Glass — per-feature flags (iOS 26 visual API).
@@ -80,11 +82,13 @@ static BOOL sDidShowSettings;
 - (_Bool)application:(UIApplication *)application didFinishLaunchingWithOptions:(id)arg2 {
 	BOOL result = %orig;
 	[SCITempFiles sweepLeftovers];
+	sciDMUpdateKeepAlive();
 	return result;
 }
 - (void)applicationDidEnterBackground:(id)arg1 {
 	%orig;
 	[SCICacheManager runAutoClearIfDue];
+	dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ SCIFileLogExportToDocuments(); });
 	[[SCILockManager shared] applyBackgroundInvalidation];
 }
 

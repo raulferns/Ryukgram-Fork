@@ -1,4 +1,5 @@
 #import "SCISettingsSections.h"
+#import "../SCITabBarOrderViewController.h"
 #import "../SCIAppIconPickerViewController.h"
 #import "../../InstagramHeaders.h"
 #import "../../Features/Gating/SCIBulkGatingPresets.h"
@@ -41,6 +42,10 @@
 		@{
 			@"header": SCILocalized(@"Tab bar"),
 			@"rows": @[
+				[SCISetting navigationCellWithTitle:SCILocalized(@"Tab bar order")
+						subtitle:SCILocalized(@"Drag tabs to reorder the bottom navigation bar")
+						    icon:[SCISymbol symbolWithName:@"line.3.horizontal"]
+					  viewController:[SCITabBarOrderViewController new]],
 				[SCISetting menuCellWithTitle:SCILocalized(@"Icon order") subtitle:SCILocalized(@"The order of the icons on the bottom navigation bar") menu:[self menus][@"nav_icon_ordering"]],
 				[SCISetting menuCellWithTitle:SCILocalized(@"Swipe between tabs") subtitle:SCILocalized(@"Lets you swipe to switch between navigation bar tabs") menu:[self menus][@"swipe_nav_tabs"]],
 				[SCISetting menuCellWithTitle:SCILocalized(@"Launch tab") subtitle:SCILocalized(@"Tab the app opens to. Ignored when Messages-only is on") menu:[self menus][@"launch_tab"]],

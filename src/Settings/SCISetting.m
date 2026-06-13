@@ -7,6 +7,19 @@
 - (instancetype)initWithType:(SCITableCell)type NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
++ (instancetype)customCellWithHeight:(CGFloat)height
+							provider:(UITableViewCell *(^)(UITableView *tableView, NSIndexPath *indexPath))provider
+{
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellCustom];
+
+	setting.customHeight = height;
+	setting.customCellProvider = provider;
+
+	return setting;
+}
+
+// MARK: - + stepperCellWithTitle
+
 @end
 
 ///
