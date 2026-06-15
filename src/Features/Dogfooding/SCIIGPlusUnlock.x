@@ -31,9 +31,28 @@ static inline BOOL SCIIGPlusElig(NSString *key) {
 	return SCIIGPlusOn(key) || [SCIUtils getBoolPref:kIGPlusElig];
 }
 
+// Instrumentation: prove whether these @objc getters are actually dispatched
+// through objc_msgSend. If this counter stays 0 after exercising IGPlus screens,
+// the gating runs through Swift direct/vtable dispatch and MSHookMessageEx is
+// bypassed — which means forcing the @objc entry cannot unlock the feature and a
+// different strategy (Swift function patch / eligibility-helper hook) is required.
+#import <os/log.h>
+#import <objc/runtime.h>
+#include <stdatomic.h>
+static atomic_int g_igplus_hits = 0;
+
+// The macro now wraps every hook body in real_##fn and routes calls through a thin
+// hook_##fn that ticks the counter + os_logs the first hit per getter, then runs
+// the original body unchanged.
 #define IGPLUS_HOOK(fn) \
 	static BOOL (*orig_##fn)(id, SEL) = NULL; \
-	static BOOL hook_##fn(id self, SEL _cmd)
+	static BOOL real_##fn(id self, SEL _cmd); \
+	static BOOL hook_##fn(id self, SEL _cmd) { \
+		if (atomic_fetch_add_explicit(&g_igplus_hits, 1, memory_order_relaxed) == 0) \
+			os_log(OS_LOG_DEFAULT, "[SCI] IGPlus @objc getter dispatched via objc_msgSend (first hit): %{public}s", sel_getName(_cmd)); \
+		return real_##fn(self, _cmd); \
+	} \
+	static BOOL real_##fn(id self, SEL _cmd)
 
 IGPLUS_HOOK(hasAccessToIGPlus)                  { return SCIIGPlusElig(@"sci_igplus_has_access") ? YES : (orig_hasAccessToIGPlus ? orig_hasAccessToIGPlus(self,_cmd) : NO); }
 IGPLUS_HOOK(hasAnyActiveBenefit)               { return SCIIGPlusElig(@"sci_igplus_any_active") ? YES : (orig_hasAnyActiveBenefit ? orig_hasAnyActiveBenefit(self,_cmd) : NO); }
