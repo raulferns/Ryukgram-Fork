@@ -85,6 +85,7 @@
 															@"rows": @[
 													[SCISetting switchCellWithTitle:SCILocalized(@"★ Force all IGPlus benefits") subtitle:SCILocalized(@"Master: todos os getters de benefit do IGConsumerSubsService + eligibility helpers") defaultsKey:@"sci_force_igplus_all" requiresRestart:YES],
 													[SCISetting switchCellWithTitle:SCILocalized(@"IGPlus eligibility/data-provider") subtitle:SCILocalized(@"SUBSBenefitDataProvider + peek/chat eligibility") defaultsKey:@"sci_igplus_eligibility" requiresRestart:YES],
+													[SCISetting switchCellWithTitle:SCILocalized(@"★ Force eligibility HELPERS (agressivo)") subtitle:SCILocalized(@"Hooka os class-methods de elegibilidade (isUpsellEligible..., isAuraQuietPosting..., isChatPeek...) que o IG consulta via Swift direct dispatch. Caminho que o MSHookMessageEx no service nao pega. Requer restart.") defaultsKey:@"sci_igplus_force_eligibility_helpers" requiresRestart:YES],
 													[SCISetting switchCellWithTitle:SCILocalized(@"IGPlus access") subtitle:SCILocalized(@"hasAccessToIGPlus") defaultsKey:@"sci_igplus_has_access" requiresRestart:YES],
 													[SCISetting switchCellWithTitle:SCILocalized(@"Any active benefit") subtitle:SCILocalized(@"hasAnyActiveBenefit") defaultsKey:@"sci_igplus_any_active" requiresRestart:YES]
 															]
