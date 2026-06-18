@@ -6,9 +6,10 @@
 NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, SCICSymbolsBrowserMode) {
-    SCICSymbolsBrowserModeCFunctions = 0,
-    SCICSymbolsBrowserModeDataParams = 1,
-    SCICSymbolsBrowserModeSwiftDisassembly = 2,
+    SCICSymbolsBrowserModeObjCMethods = 0,
+    SCICSymbolsBrowserModeCFunctions = 1,
+    SCICSymbolsBrowserModeDataParams = 2,
+    SCICSymbolsBrowserModeSwiftDisassembly = 3,
 };
 
 @interface SCISymbolsBrowserViewController : SCIBaseSettingsListViewController <UISearchBarDelegate>

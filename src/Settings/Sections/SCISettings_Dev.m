@@ -186,26 +186,10 @@
 											@"header": SCILocalized(@"Runtime"),
 											@"footer": SCILocalized(@"Browses classes in the selected loaded image. Search scans the full cached class index and BOOL getter names; no 80-row cap."),
 											@"rows": @[
-												[SCISetting navigationCellWithTitle:SCILocalized(@"Instagram (exec) Browser")
-							   subtitle:SCILocalized(@"Classes in the Instagram binary → hookable BOOL getters. Toggle shows the live value (IG default + your override) and forces it.")
-								   icon:[SCISymbol symbolWithIGName:@"bcn_link_outline_24" fallback:@"function"]
-							viewController:[[SCISymbolBrowserViewController alloc] initWithImage:SCISymbolImageInstagram]],
-								[SCISetting navigationCellWithTitle:SCILocalized(@"FBSharedFramework Browser")
-							   subtitle:SCILocalized(@"Classes in FBSharedFramework → hookable BOOL getters, live state, force toggles.")
-								   icon:[SCISymbol symbolWithIGName:@"bcn_link_outline_24" fallback:@"shippingbox"]
-							viewController:[[SCISymbolBrowserViewController alloc] initWithImage:SCISymbolImageFBShared]],
-								[SCISetting navigationCellWithTitle:SCILocalized(@"C functions / ABI Browser")
-							   subtitle:SCILocalized(@"Instagram + FBShared exports/imports. BOOL hardstub only when ABI is validated; int/double/string/action show typed plan.")
-							       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"function"]
-							viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeCFunctions]],
-								[SCISetting navigationCellWithTitle:SCILocalized(@"DATA / Param Descriptor Browser")
-							   subtitle:SCILocalized(@"ig_is_employee, schemas, keys and param descriptors. These are not functions; hook their consumers/readers.")
-							       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"tag"]
-							viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeDataParams]],
-								[SCISetting navigationCellWithTitle:SCILocalized(@"Swift / Direct Dispatch Browser")
-							   subtitle:SCILocalized(@"Swift/C++/mangled symbols for disassembly and xref planning. No fake BOOL toggles.")
-							       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"chevron.left.forwardslash.chevron.right"]
-							viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeSwiftDisassembly]],
+												[SCISetting navigationCellWithTitle:SCILocalized(@"Unified Runtime Browser")
+							   subtitle:SCILocalized(@"Exec + FBShared in one Liquid Glass browser. Tabs: image scope and ObjC/C/DATA/Swift, with safe ABI-aware actions.")
+							       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"square.grid.2x2"]
+							viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeObjCMethods]],
 											]
 										},
 										@{
