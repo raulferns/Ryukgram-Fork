@@ -41,6 +41,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable NSNumber *)forceForParamDescriptorSymbol:(NSString *)name;
 + (BOOL)setParamDescriptorForce:(nullable NSNumber *)value forSymbol:(NSString *)name;
 + (NSArray<NSString *> *)forcedParamDescriptorSymbols;
++ (BOOL)observeForParamDescriptorSymbol:(NSString *)name;
++ (BOOL)setParamDescriptorObserve:(BOOL)value forSymbol:(NSString *)name;
++ (NSUInteger)paramDescriptorCallCountForSymbol:(NSString *)name;
 
 @end
 
