@@ -21,7 +21,9 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 
 @implementation SCISymbolBrowserViewController {
 	SCISymbolImage _image;
+	BOOL _unified;
 	NSArray<SCISymbolClass *> *_allClasses;
+	NSArray<SCISymbolClass *> *_fbClasses;
 	UISearchBar *_searchBar;
 	SCIUIKit26SearchBarContainerView *_searchContainer;
 	NSLayoutConstraint *_searchBottomConstraint;
@@ -33,6 +35,12 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 	NSString *title = (image == SCISymbolImageInstagram) ? @"Instagram (exec)" : @"FBSharedFramework";
 	self = [super initWithTitle:title];
 	if (self) { _image = image; }
+	return self;
+}
+
+- (instancetype)initUnified {
+	self = [super initWithTitle:SCILocalized(@"Unified Runtime Browser")];
+	if (self) { _image = SCISymbolImageInstagram; _unified = YES; }
 	return self;
 }
 
@@ -55,10 +63,13 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 	[_spinner startAnimating];
 
 	SCISymbolImage img = _image;
+	BOOL unified = _unified;
 	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-		NSArray<SCISymbolClass *> *classes = [SCISymbolBrowserEngine classesForImage:img];
+		NSArray<SCISymbolClass *> *ig = [SCISymbolBrowserEngine classesForImage:img];
+		NSArray<SCISymbolClass *> *fb = unified ? [SCISymbolBrowserEngine classesForImage:SCISymbolImageFBShared] : nil;
 		dispatch_async(dispatch_get_main_queue(), ^{
-			self->_allClasses = classes;
+			self->_allClasses = ig;
+			self->_fbClasses = fb;
 			[self->_spinner stopAnimating];
 			[self rebuildSections];
 		});
@@ -207,54 +218,72 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 	[self rebuildSections];
 }
 
+// Builds the section for one class (or nil if no getter is visible for the query).
+// imageTag is prefixed to the header so the unified scope can show both images.
+- (SCIBaseSettingsSection *)sectionForClass:(SCISymbolClass *)c tokens:(NSArray<NSString *> *)tokens imageTag:(NSString *)imageTag {
+	NSArray<SCISymbolGetter *> *visibleGetters = [self visibleGettersForClass:c tokens:tokens];
+	if (!visibleGetters.count) return nil;
+
+	NSMutableArray<SCIBaseSettingsRow *> *rows = [NSMutableArray array];
+	for (SCISymbolGetter *g in visibleGetters) {
+		NSString *cn = c.className ?: @"";
+		NSString *sn = g.selectorName ?: @"";
+		BOOL isClass = g.isClassMethod;
+		NSString *overrideKey = g.overrideKey;
+		NSString *rowTitle = [NSString stringWithFormat:@"%@%@", isClass ? @"+ " : @"", sn];
+		__weak typeof(self) weakSelf = self;
+
+		SCIBaseSettingsRow *row = [SCIBaseSettingsRow
+			switchRowWithTitle:rowTitle
+					  subtitle:nil
+						 value:^BOOL{
+							 NSNumber *forced = [SCISymbolBrowserEngine overrideForKey:overrideKey];
+							 if (forced) return forced.boolValue;
+							 NSNumber *lv = [SCISymbolBrowserEngine liveValueForClass:cn selector:sn isClassMethod:isClass];
+							 return lv ? lv.boolValue : NO;
+						 }
+						action:^(BOOL enabled, __unused UIViewController *vc) {
+							 // Tapping ON creates a Force ON override. Tapping OFF does
+							 // not mean Force OFF; it removes the override and returns
+							 // the getter to IG default. Force OFF is available by
+							 // long-pressing the row.
+							 [SCISymbolBrowserEngine setOverride:(enabled ? @YES : nil) forClass:cn selector:sn isClassMethod:isClass];
+							 [weakSelf rebuildSections];
+						 }];
+		row.dynamicSubtitle = ^NSString *{
+			return [weakSelf subtitleForClass:cn selector:sn isClass:isClass overrideKey:overrideKey];
+		};
+		NSDictionary *payload = @{ @"class": cn, @"selector": sn, @"isClass": @(isClass), @"overrideKey": overrideKey ?: @"" };
+		objc_setAssociatedObject(row, &kSCIRuntimeBrowserRowPayloadKey, payload, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+		[rows addObject:row];
+	}
+	NSString *header = imageTag.length ? [NSString stringWithFormat:@"%@ · %@", imageTag, c.className ?: @""] : (c.className ?: @"");
+	return [SCIBaseSettingsSection sectionWithHeader:header footer:nil rows:rows];
+}
+
 - (void)rebuildSections {
-	if (!_allClasses) return;
+	if (!_allClasses && !_fbClasses) return;
 
 	NSArray<NSString *> *tokens = [self queryTokens];
 	NSMutableArray<SCIBaseSettingsSection *> *sections = [NSMutableArray array];
 
+	// Instagram scope (or the single selected image when not unified).
+	NSString *igTag = _unified ? @"IG" : nil;
 	for (SCISymbolClass *c in _allClasses) {
-		NSArray<SCISymbolGetter *> *visibleGetters = [self visibleGettersForClass:c tokens:tokens];
-		if (!visibleGetters.count) continue;
-
-		NSMutableArray<SCIBaseSettingsRow *> *rows = [NSMutableArray array];
-		for (SCISymbolGetter *g in visibleGetters) {
-			NSString *cn = c.className ?: @"";
-			NSString *sn = g.selectorName ?: @"";
-			BOOL isClass = g.isClassMethod;
-			NSString *overrideKey = g.overrideKey;
-			NSString *rowTitle = [NSString stringWithFormat:@"%@%@", isClass ? @"+ " : @"", sn];
-			__weak typeof(self) weakSelf = self;
-
-			SCIBaseSettingsRow *row = [SCIBaseSettingsRow
-				switchRowWithTitle:rowTitle
-						  subtitle:nil
-							 value:^BOOL{
-								 NSNumber *forced = [SCISymbolBrowserEngine overrideForKey:overrideKey];
-								 if (forced) return forced.boolValue;
-								 NSNumber *lv = [SCISymbolBrowserEngine liveValueForClass:cn selector:sn isClassMethod:isClass];
-								 return lv ? lv.boolValue : NO;
-							 }
-							action:^(BOOL enabled, __unused UIViewController *vc) {
-								 // Tapping ON creates a Force ON override. Tapping OFF does
-								 // not mean Force OFF; it removes the override and returns
-								 // the getter to IG default. Force OFF is available by
-								 // long-pressing the row.
-								 [SCISymbolBrowserEngine setOverride:(enabled ? @YES : nil) forClass:cn selector:sn isClassMethod:isClass];
-								 [weakSelf rebuildSections];
-							 }];
-			row.dynamicSubtitle = ^NSString *{
-				return [weakSelf subtitleForClass:cn selector:sn isClass:isClass overrideKey:overrideKey];
-			};
-			NSDictionary *payload = @{ @"class": cn, @"selector": sn, @"isClass": @(isClass), @"overrideKey": overrideKey ?: @"" };
-			objc_setAssociatedObject(row, &kSCIRuntimeBrowserRowPayloadKey, payload, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-			[rows addObject:row];
+		SCIBaseSettingsSection *s = [self sectionForClass:c tokens:tokens imageTag:igTag];
+		if (s) [sections addObject:s];
+	}
+	// FBShared scope (unified only).
+	if (_unified) {
+		for (SCISymbolClass *c in _fbClasses) {
+			SCIBaseSettingsSection *s = [self sectionForClass:c tokens:tokens imageTag:@"FB"];
+			if (s) [sections addObject:s];
 		}
-		[sections addObject:[SCIBaseSettingsSection sectionWithHeader:c.className footer:nil rows:rows]];
 	}
 
-	NSString *mode = tokens.count ? SCILocalized(@"Search is scanning the full cached class/getter index; forced rows are only shown when they match the query.") : SCILocalized(@"Showing default discovery filters plus any forced overrides. Search scans every class and BOOL getter in the loaded image; no 80-row cap.");
-	NSString *footer = [NSString stringWithFormat:SCILocalized(@"Indexed %lu classes in this image. %@"), (unsigned long)_allClasses.count, mode];
+	NSUInteger indexed = _allClasses.count + _fbClasses.count;
+	NSString *mode = tokens.count ? SCILocalized(@"Search is scanning the full cached class/getter index; forced rows are only shown when they match the query.") : SCILocalized(@"Showing default discovery filters plus any forced overrides. Search scans every class and BOOL getter in the loaded image(s); no 80-row cap.");
+	NSString *footer = [NSString stringWithFormat:SCILocalized(@"Indexed %lu classes. %@"), (unsigned long)indexed, mode];
 	if (sections.count == 0) {
 		SCIBaseSettingsRow *hint = [SCIBaseSettingsRow
 			rowWithTitle:tokens.count ? SCILocalized(@"No matching classes/getters") : SCILocalized(@"No default matches")

@@ -259,6 +259,7 @@ static BOOL sciInstallRuntimeOverrideForKey(NSString *key) {
 
 + (NSNumber *)overrideForKey:(NSString *)overrideKey { return sciOverrideForKey(overrideKey); }
 + (BOOL)hookInstalledForKey:(NSString *)overrideKey { return overrideKey.length && [sInstalledOverrideKeys containsObject:overrideKey]; }
++ (BOOL)installOverrideForKey:(NSString *)overrideKey { return sciInstallRuntimeOverrideForKey(overrideKey); }
 
 + (void)setOverride:(NSNumber *)value forClass:(NSString *)className selector:(NSString *)selectorName isClassMethod:(BOOL)isClassMethod {
 	NSString *key = sciOverrideKeyForParts(className, selectorName, isClassMethod);
@@ -266,6 +267,7 @@ static BOOL sciInstallRuntimeOverrideForKey(NSString *key) {
 	if (value) d[key] = value; else [d removeObjectForKey:key];
 	[SCIUtils setPref:d forKey:kOverridesKey];
 	sciRefreshRuntimeOverrideCache();
+	if (value) sciInstallRuntimeOverrideForKey(key);
 }
 
 + (void)reinstallPersistedHooks {

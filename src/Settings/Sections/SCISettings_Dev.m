@@ -187,9 +187,13 @@
 											@"footer": SCILocalized(@"Browses classes in the selected loaded image. Search scans the full cached class index and BOOL getter names; no 80-row cap."),
 											@"rows": @[
 												[SCISetting navigationCellWithTitle:SCILocalized(@"Unified Runtime Browser")
-							   subtitle:SCILocalized(@"Exec + FBShared in one Liquid Glass browser. Tabs: image scope and ObjC/C/DATA/Swift, with safe ABI-aware actions.")
-							       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"square.grid.2x2"]
-							viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeObjCMethods]],
+			   subtitle:SCILocalized(@"Instagram exec + FBShared in one screen. Classes grouped (IG·/FB· headers) with BOOL getters; each switch shows the LIVE value and forces it (persisted, re-applied at launch). Long-press for Force OFF / Undo.")
+			       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"square.grid.2x2"]
+			viewController:[[SCISymbolBrowserViewController alloc] initUnified]],
+												[SCISetting navigationCellWithTitle:SCILocalized(@"C / DATA / ABI Browser (experimental)")
+			   subtitle:SCILocalized(@"C functions, DATA/param descriptors and Swift symbols with ABI-aware fishhook actions. Experimental; fragile vs the ObjC browser above.")
+			       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"square.grid.2x2"]
+			viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeCFunctions]],
 											]
 										},
 										@{

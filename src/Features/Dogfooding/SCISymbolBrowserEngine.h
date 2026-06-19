@@ -8,10 +8,9 @@
 // Runtime-force timing model:
 //   • Persistence: one NSUserDefaults dict (sci_symbol_overrides) via SCIUtils,
 //     registered in SCIDefaults so backup/export includes it.
-//   • Hooking: persisted overrides are installed once from a Logos %ctor in
-//     SCISymbolBrowserRuntimeHooks.x. A newly selected getter is saved and takes
-//     effect after relaunch; already-installed getters update from the in-memory
-//     cache immediately.
+//   • Hooking: persisted overrides are installed once from Logos bootstrap.
+//     A newly selected getter is saved and installed live immediately; the
+//     replacement reads the in-memory cache, not NSUserDefaults.
 //   • Replacement hot path never reads NSUserDefaults. It reads only a static
 //     immutable cache refreshed when the settings UI changes.
 //   • Enumeration remains on-demand when the browser opens; no class crawling at
@@ -50,6 +49,7 @@ typedef NS_ENUM(NSInteger, SCISymbolImage) {
 
 + (nullable NSNumber *)overrideForKey:(NSString *)overrideKey;
 + (BOOL)hookInstalledForKey:(NSString *)overrideKey;
++ (BOOL)installOverrideForKey:(NSString *)overrideKey;
 
 + (void)setOverride:(nullable NSNumber *)value
 		   forClass:(NSString *)className

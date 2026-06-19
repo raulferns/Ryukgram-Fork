@@ -439,6 +439,7 @@ NSDictionary *SCIDefaultsDictionary(void) {
 		@"sci_csym_param_bool_overrides": @{},
 		@"sci_csym_param_bool_observe": @{},
 		@"sci_runtime_patch_plans": @{},
+		@"sci_runtime_data_patch_snapshots": @{},
 		@"sci_csym_stub_install_at_launch": @NO,
 		@"sci_apply_bloks_prefetch": @(NO),
 		@"sci_apply_force_bloks": @(NO),
