@@ -147,19 +147,14 @@ static BOOL sDidShowSettings;
 
 // MARK: - Liquid glass
 
-%group SCILiquidGlassGroup
-
-%hook IGDSLauncherConfig
-- (_Bool)isLiquidGlassInAppNotificationEnabled {return sLGForceOff ? NO : (sLGButtons ? YES : %orig);}
-- (_Bool)isLiquidGlassToastEnabled {return sLGForceOff ? NO : (sLGButtons ? YES : %orig);}
-- (_Bool)isLiquidGlassToastPeekEnabled {return sLGForceOff ? NO : (sLGButtons ? YES : %orig);}
-- (_Bool)isLiquidGlassIconBarButtonEnabled {return sLGForceOff ? NO : (sLGButtons ? YES : %orig);}
-- (_Bool)isLiquidGlassNavigationContentStylePinningEnabled {return sLGForceOff ? NO : (sLGButtons ? YES : %orig);}
-- (_Bool)isLiquidGlassEaseInOutBlurEnabled {return sLGForceOff ? NO : (sLGButtons ? YES : %orig);}
-- (_Bool)isLiquidGlassCGContextBlurEnabled {return sLGForceOff ? NO : (sLGButtons ? YES : %orig);}
-%end
-
-%end
+// NOTE: os getters BOOL de IGDSLauncherConfig (isLiquidGlass*) foram CONSOLIDADOS
+// em src/Features/Gating/SCIIGDSLauncherConfigHook.x. Havia dois %hook
+// IGDSLauncherConfig (aqui e lá); como dezenas de getters compartilham o mesmo
+// IMP, os dois grupos colidiam na cadeia de %orig e o toggle do Dev não surtia
+// efeito. Agora há um único %hook no projeto. As prefs do menu Interface
+// (liquid_glass_buttons / liquid_glass_force_off) são lidas por aquele hook.
+// O %group SCILiquidGlassGroup foi removido (ficaria vazio); os hooks de runtime
+// LG (tab bar/surfaces) são instalados por sciInstallLiquidGlassHooks().
 
 // MARK: - Progressive blur (iOS 26+ scroll-edge effect)
 // Keep iOS 26-only UIKit classes runtime-resolved. The host app uses SDK 26.2
@@ -558,13 +553,22 @@ static void sciInstallLiquidGlassHooks(void) {
 %ctor {
 	SCIRegisterDefaultsOnce();
 
+	// Conformidade: o menu Dev>IGDSLauncher segue o MESMO padrão do resto da
+	// tweak. As prefs do Dev de LiquidGlass alimentam as MESMAS static BOOLs que
+	// o mecanismo real (sciInstallLiquidGlassHooks) consome. Assim, ligar
+	// LiquidGlass no Dev dispara o mesmo ponto de decisão validado no binário:
+	// os símbolos C IGTabBarStyleForLauncherSet/IGFloatingTabBarEnabled (FBShared,
+	// importados pelo exec) + IGLiquidGlassSwizzleToggle.isEnabled. Os getters de
+	// IGDSLauncherConfig sozinhos NÃO ligam o LiquidGlass (são config/telemetria).
+	BOOL devLG  = SCI_PREF(@"sci_igds_liquidglass") || SCI_PREF(@"sci_igds_launcher_all") || SCI_PREF(@"sci_apply_liquidglass");
+
 	sLGForceOff = SCI_PREF(@"liquid_glass_force_off");
 
 	if (@available(iOS 19.0, *)) {
-		sLGButtons = !sLGForceOff && SCI_PREF(@"liquid_glass_buttons");
+		sLGButtons = !sLGForceOff && (SCI_PREF(@"liquid_glass_buttons") || devLG);
 	}
 
-	sLGSurfaces = !sLGForceOff && SCI_PREF(@"liquid_glass_surfaces");
+	sLGSurfaces = !sLGForceOff && (SCI_PREF(@"liquid_glass_surfaces") || devLG);
 
 	if (@available(iOS 26.0, *)) {
 		sLGProgressiveBlur = SCI_PREF(@"liquid_glass_progressive_blur") && objc_getClass("UIScrollEdgeEffect") != nil;
@@ -584,7 +588,9 @@ static void sciInstallLiquidGlassHooks(void) {
 	if (sciFlexEnabled()) {%init(SCIFlexGroup);}
 
 	if (sLGButtons || sLGSurfaces || sLGForceOff) {
-		%init(SCILiquidGlassGroup);
+		// %init(SCILiquidGlassGroup) removido: os getters de IGDSLauncherConfig
+		// agora vivem só em SCIIGDSLauncherConfigHook.x (fonte única). Aqui ficam
+		// apenas os hooks de runtime de tab bar/surfaces.
 		sciInstallLiquidGlassHooks();
 	}
 

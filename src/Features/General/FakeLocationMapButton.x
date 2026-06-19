@@ -1,6 +1,7 @@
 // Quick fake-location toggle injected into IG's Friends Map (DMs > Maps).
 
 #import "../../Utils.h"
+#import "../Dogfooding/SCIInstallOnce.h"
 #import "../../SCIChrome.h"
 #import "../../Settings/SCIFakeLocationSettingsVC.h"
 #import "../../Settings/SCIFakeLocationPickerVC.h"
@@ -344,9 +345,7 @@ static void SCIInstallFriendsMapHooks(void) {
 %ctor {
 	SCIInstallFriendsMapHooks();
 
-	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-		SCIInstallFriendsMapHooks();
-	});
+	SCIInstallOnceOnActive(^{ SCIInstallFriendsMapHooks(); });
 
 	[NSNotificationCenter.defaultCenter addObserverForName:@"SCIFakeLocationMapBtnPrefChanged" object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
 		SCIRefreshKnownMapButtons();

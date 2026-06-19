@@ -15,12 +15,34 @@
 @implementation SCIOptionSheetVC
 
 - (CGFloat)rowHeight {
-	return self.wordmarkMode ? 68.0 : 54.0;
+	return self.wordmarkMode ? 68.0 : UITableViewAutomaticDimension;
+}
+
+- (CGFloat)estimatedHeightForOption:(NSDictionary *)opt {
+	if (self.wordmarkMode) return 68.0;
+	NSString *title = opt[@"title"] ?: opt[@"value"] ?: @"";
+	NSString *desc = opt[@"description"] ?: @"";
+	CGFloat width = 348.0 - 16.0 - 16.0;
+	if (desc.length) width -= 42.0; // checkmark/accessory reserve
+	CGRect titleRect = [title boundingRectWithSize:CGSizeMake(width, CGFLOAT_MAX)
+									 options:NSStringDrawingUsesLineFragmentOrigin
+								attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:19.0 weight:UIFontWeightRegular]}
+									 context:nil];
+	CGRect descRect = desc.length ? [desc boundingRectWithSize:CGSizeMake(width, CGFLOAT_MAX)
+									 options:NSStringDrawingUsesLineFragmentOrigin
+								attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular]}
+									 context:nil] : CGRectZero;
+	CGFloat h = 18.0 + ceil(titleRect.size.height) + (desc.length ? 5.0 + ceil(descRect.size.height) : 0.0) + 18.0;
+	return MAX(58.0, MIN(h, 124.0));
 }
 
 - (CGSize)panelSize {
-	CGFloat width = self.wordmarkMode ? 330.0 : 300.0;
-	CGFloat height = MIN(MAX(72.0, [self rowHeight] * MAX((NSUInteger)1, self.options.count)), 390.0);
+	CGFloat width = self.wordmarkMode ? 330.0 : 348.0;
+	CGFloat rows = 0.0;
+	for (NSDictionary *opt in self.options) rows += [self estimatedHeightForOption:opt];
+	if (rows <= 0.0) rows = 72.0;
+	CGFloat maxHeight = MIN(UIScreen.mainScreen.bounds.size.height - 160.0, 560.0);
+	CGFloat height = MIN(MAX(96.0, rows + 16.0), MAX(220.0, maxHeight));
 	return CGSizeMake(width, height);
 }
 
@@ -50,8 +72,10 @@
 	self.tableView.opaque = NO;
 	self.tableView.separatorColor = SCIUIKit26SeparatorColor();
 	self.tableView.separatorInset = UIEdgeInsetsMake(0.0, 18.0, 0.0, 18.0);
-	self.tableView.alwaysBounceVertical = NO;
-	self.tableView.showsVerticalScrollIndicator = self.options.count > 7;
+	self.tableView.rowHeight = [self rowHeight];
+	self.tableView.estimatedRowHeight = self.wordmarkMode ? 68.0 : 82.0;
+	self.tableView.alwaysBounceVertical = !self.wordmarkMode;
+	self.tableView.showsVerticalScrollIndicator = !self.wordmarkMode && self.options.count > 4;
 	[self.panelView.contentView addSubview:self.tableView];
 
 	CGSize size = [self panelSize];
@@ -76,7 +100,9 @@
 - (void)dismissSelf { [self dismissViewControllerAnimated:YES completion:nil]; }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)self.options.count; }
-- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath { return [self rowHeight]; }
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+	return self.wordmarkMode ? 68.0 : [self estimatedHeightForOption:self.options[(NSUInteger)indexPath.row]];
+}
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
 	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"opt"];
@@ -106,12 +132,15 @@
 	} else {
 		cfg.text = opt[@"title"] ?: opt[@"value"];
 		cfg.textProperties.color = UIColor.labelColor;
+		cfg.textProperties.font = [UIFont systemFontOfSize:19.0 weight:UIFontWeightRegular];
 		cfg.textProperties.numberOfLines = 0;
 		NSString *desc = opt[@"description"];
 		cfg.secondaryText = desc.length ? desc : nil;
 		cfg.secondaryTextProperties.color = UIColor.secondaryLabelColor;
+		cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
 		cfg.secondaryTextProperties.numberOfLines = 0;
-		cfg.textToSecondaryTextVerticalPadding = 4.5;
+		cfg.textToSecondaryTextVerticalPadding = 5.0;
+		cfg.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(10.0, 16.0, 10.0, 16.0);
 		if (image) {
 			cfg.image = [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 			cfg.imageProperties.tintColor = UIColor.labelColor;

@@ -316,7 +316,7 @@ static void new_prismMenuView_layout(id self, SEL _cmd) {
     Class builderClass = NSClassFromString(@"IGDSPrismMenuItemBuilder");
     Class itemViewClass = NSClassFromString(@"IGDSPrismMenu.IGDSPrismMenuItemView");
     if (!itemViewClass) itemViewClass = NSClassFromString(@"_TtC13IGDSPrismMenu21IGDSPrismMenuItemView");
-    if (!builderClass || !itemViewClass) return;
+    if (!builderClass) return;
 
     typedef id (*InitFn)(id, SEL, id);
     typedef id (*WithFn)(id, SEL, id);
@@ -333,9 +333,27 @@ static void new_prismMenuView_layout(id self, SEL _cmd) {
         ptrdiff_t off = ivar_getOffset(edrIv);
         edrEnabled = *(BOOL *)((uint8_t *)(__bridge void *)template + off);
     }
-    UIView *itemView = ((id(*)(id,SEL,id,BOOL,BOOL,BOOL))objc_msgSend)([itemViewClass alloc],
-        @selector(initWithMenuItem:edrEnabled:isHeader:isSubmenu:), menuItem, edrEnabled, NO, NO);
-    if (!itemView) return;
+    UIView *itemView = nil;
+    if (itemViewClass) {
+        itemView = ((id(*)(id,SEL,id,BOOL,BOOL,BOOL))objc_msgSend)([itemViewClass alloc],
+            @selector(initWithMenuItem:edrEnabled:isHeader:isSubmenu:), menuItem, edrEnabled, NO, NO);
+    }
+    if (!itemView) {
+        UIView *fallback = [[UIView alloc] initWithFrame:CGRectZero];
+        fallback.backgroundColor = UIColor.clearColor;
+        UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
+        label.text = SCILocalized(@"Note actions");
+        label.textColor = UIColor.labelColor;
+        label.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+        label.translatesAutoresizingMaskIntoConstraints = NO;
+        [fallback addSubview:label];
+        [NSLayoutConstraint activateConstraints:@[
+            [label.leadingAnchor constraintEqualToAnchor:fallback.leadingAnchor constant:18.0],
+            [label.centerYAnchor constraintEqualToAnchor:fallback.centerYAnchor],
+            [label.trailingAnchor constraintLessThanOrEqualToAnchor:fallback.trailingAnchor constant:-18.0],
+        ]];
+        itemView = fallback;
+    }
 
     CGFloat itemHeight = template.frame.size.height;
     CGFloat itemX = template.frame.origin.x;

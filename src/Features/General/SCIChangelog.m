@@ -43,6 +43,40 @@ static void sciSaveCachedRelease(NSDictionary *json) {
 	if (data) [data writeToFile:sciCachedReleasePath(tag) atomically:YES];
 }
 
+// MARK: - Liquid Glass notes surface
+
+static UIColor *sciNotesSurfaceColor(void) {
+	return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+		return tc.userInterfaceStyle == UIUserInterfaceStyleDark
+			? UIColor.secondarySystemGroupedBackgroundColor
+			: UIColor.systemGroupedBackgroundColor;
+	}];
+}
+
+static void sciConfigureNotesRootView(UIViewController *vc) {
+	if (!vc || !vc.isViewLoaded) return;
+	SCIUIKit26ConfigureViewController(vc);
+	vc.view.opaque = YES;
+	vc.view.backgroundColor = sciNotesSurfaceColor();
+	vc.view.layer.backgroundColor = [sciNotesSurfaceColor() resolvedColorWithTraitCollection:vc.view.traitCollection].CGColor;
+}
+
+static void sciConfigureNotesTextView(UITextView *tv) {
+	if (!tv) return;
+	tv.editable = NO;
+	tv.selectable = YES;
+	tv.scrollEnabled = YES;
+	tv.alwaysBounceVertical = YES;
+	tv.bounces = YES;
+	tv.showsVerticalScrollIndicator = YES;
+	tv.backgroundColor = UIColor.clearColor;
+	tv.opaque = NO;
+	tv.textContainer.lineFragmentPadding = 0.0;
+	tv.adjustsFontForContentSizeCategory = YES;
+	tv.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+	SCIUIKit26ConfigureScrollView(tv);
+}
+
 // MARK: - Network
 
 static void sciFetchJSON(NSString *url, void (^completion)(id json)) {
@@ -121,18 +155,22 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 	NSMutableAttributedString *out = [NSMutableAttributedString new];
 	if (!md.length) return out;
 
-	UIFont *body = [UIFont systemFontOfSize:15];
-	UIFont *h2 = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
-	UIFont *h3 = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+	UIFontMetrics *bodyMetrics = [UIFontMetrics metricsForTextStyle:UIFontTextStyleBody];
+	UIFontMetrics *headlineMetrics = [UIFontMetrics metricsForTextStyle:UIFontTextStyleHeadline];
+	UIFont *body = [bodyMetrics scaledFontForFont:[UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular]];
+	UIFont *h2 = [headlineMetrics scaledFontForFont:[UIFont systemFontOfSize:20.0 weight:UIFontWeightBold]];
+	UIFont *h3 = [headlineMetrics scaledFontForFont:[UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold]];
 
 	NSMutableParagraphStyle *bodyPS = [NSMutableParagraphStyle new];
-	bodyPS.lineSpacing = 2;
-	bodyPS.paragraphSpacing = 3;
+	bodyPS.lineSpacing = 3;
+	bodyPS.paragraphSpacing = 5;
+	bodyPS.lineBreakMode = NSLineBreakByWordWrapping;
 
 	NSMutableParagraphStyle *headPS = [NSMutableParagraphStyle new];
 	headPS.lineSpacing = 2;
-	headPS.paragraphSpacing = 4;
-	headPS.paragraphSpacingBefore = 10;
+	headPS.paragraphSpacing = 7;
+	headPS.paragraphSpacingBefore = 14;
+	headPS.lineBreakMode = NSLineBreakByWordWrapping;
 
 	BOOL emitted = NO;
 
@@ -184,10 +222,9 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 
 - (void)viewDidLoad {
 	[super viewDidLoad];
-	SCIUIKit26ConfigureViewController(self);
+	sciConfigureNotesRootView(self);
 
 	self.title = SCILocalized(@"What's new in RyukGram");
-	self.view.backgroundColor = SCIUIKit26BaseSurfaceColor();
 	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
 
 	NSString *name = self.releaseJSON[@"name"] ?: self.releaseJSON[@"tag_name"] ?: @"?";
@@ -195,26 +232,47 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 	NSString *url = self.releaseJSON[@"html_url"] ?: @"";
 	NSString *header = url.length ? [NSString stringWithFormat:@"## [%@](%@)\n", name, url] : [NSString stringWithFormat:@"## %@\n", name];
 
+	SCIUIKit26GlassPanelView *panel = [[SCIUIKit26GlassPanelView alloc] initWithRadius:24.0];
+	panel.sciGlassClearStyle = NO;
+	panel.sciGlassInteractive = NO;
+	panel.translatesAutoresizingMaskIntoConstraints = NO;
+	[self.view addSubview:panel];
+
 	UITextView *tv = [UITextView new];
-	tv.editable = NO;
-	tv.selectable = YES;
-	tv.scrollEnabled = YES;
-	tv.alwaysBounceVertical = YES;
-	tv.bounces = YES;
-	tv.showsVerticalScrollIndicator = YES;
-	tv.backgroundColor = UIColor.clearColor;
-	SCIUIKit26ConfigureScrollView(tv);
-	tv.textContainerInset = UIEdgeInsetsMake(16, 16, 24, 16);
+	sciConfigureNotesTextView(tv);
+	tv.textContainerInset = UIEdgeInsetsMake(18, 18, 22, 18);
 	tv.translatesAutoresizingMaskIntoConstraints = NO;
 	tv.attributedText = sciRenderMarkdown([header stringByAppendingString:body]);
-	[self.view addSubview:tv];
+	[panel.contentView addSubview:tv];
 
+	UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+	UILayoutGuide *readable = self.view.readableContentGuide;
+	NSLayoutConstraint *maxWidth = [panel.widthAnchor constraintLessThanOrEqualToConstant:760.0];
+	NSLayoutConstraint *readableLeading = [panel.leadingAnchor constraintEqualToAnchor:readable.leadingAnchor constant:-8.0];
+	NSLayoutConstraint *readableTrailing = [panel.trailingAnchor constraintEqualToAnchor:readable.trailingAnchor constant:8.0];
+	maxWidth.priority = UILayoutPriorityRequired;
+	readableLeading.priority = UILayoutPriorityDefaultHigh;
+	readableTrailing.priority = UILayoutPriorityDefaultHigh;
 	[NSLayoutConstraint activateConstraints:@[
-		[tv.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
-		[tv.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-		[tv.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-		[tv.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+		[panel.topAnchor constraintEqualToAnchor:safe.topAnchor constant:12.0],
+		[panel.leadingAnchor constraintGreaterThanOrEqualToAnchor:safe.leadingAnchor constant:12.0],
+		[panel.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor constant:-12.0],
+		readableLeading,
+		readableTrailing,
+		[panel.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-12.0],
+		maxWidth,
+		[panel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+		[tv.topAnchor constraintEqualToAnchor:panel.contentView.topAnchor],
+		[tv.leadingAnchor constraintEqualToAnchor:panel.contentView.leadingAnchor],
+		[tv.trailingAnchor constraintEqualToAnchor:panel.contentView.trailingAnchor],
+		[tv.bottomAnchor constraintEqualToAnchor:panel.contentView.bottomAnchor],
 	]];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+	[super traitCollectionDidChange:previousTraitCollection];
+	self.view.backgroundColor = sciNotesSurfaceColor();
+	self.view.layer.backgroundColor = [sciNotesSurfaceColor() resolvedColorWithTraitCollection:self.view.traitCollection].CGColor;
 }
 
 - (void)done {
@@ -236,9 +294,13 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 
 - (void)viewDidLoad {
 	[super viewDidLoad];
+	sciConfigureNotesRootView(self);
+	SCIUIKit26ConfigureTableView(self.tableView);
 
 	self.title = SCILocalized(@"Release notes");
-	self.tableView.rowHeight = 60;
+	self.tableView.rowHeight = UITableViewAutomaticDimension;
+	self.tableView.estimatedRowHeight = 68.0;
+	self.tableView.contentInset = UIEdgeInsetsMake(10, 0, 16, 0);
 	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
 
 	self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
@@ -247,6 +309,12 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 	[self.spinner startAnimating];
 
 	[self loadReleases];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+	[super traitCollectionDidChange:previousTraitCollection];
+	self.view.backgroundColor = sciNotesSurfaceColor();
+	self.view.layer.backgroundColor = [sciNotesSurfaceColor() resolvedColorWithTraitCollection:self.view.traitCollection].CGColor;
 }
 
 - (void)loadReleases {
@@ -260,7 +328,8 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 			empty.text = SCILocalized(@"No releases");
 			empty.textAlignment = NSTextAlignmentCenter;
 			empty.textColor = UIColor.secondaryLabelColor;
-			empty.font = [UIFont systemFontOfSize:15];
+			empty.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody] scaledFontForFont:[UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular]];
+			empty.adjustsFontForContentSizeCategory = YES;
 			self.tableView.backgroundView = empty;
 		}
 
@@ -278,8 +347,8 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
 	UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"r"];
-	SCIUIKit26ConfigureTableCell(cell);
 	if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"r"];
+	SCIUIKit26ConfigureTableCell(cell);
 
 	NSDictionary *rel = self.releases[ip.row];
 	NSString *tag = rel[@"tag_name"] ?: @"";
@@ -293,6 +362,14 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 	NSString *published = rel[@"published_at"];
 	cell.textLabel.text = title;
 	cell.detailTextLabel.text = published.length ? [published substringToIndex:MIN((NSUInteger)10, published.length)] : @"";
+	cell.textLabel.numberOfLines = 2;
+	cell.detailTextLabel.numberOfLines = 1;
+	cell.textLabel.textColor = UIColor.labelColor;
+	cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
+	cell.textLabel.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleSubheadline] scaledFontForFont:[UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold]];
+	cell.detailTextLabel.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleCaption1] scaledFontForFont:[UIFont systemFontOfSize:12.0 weight:UIFontWeightRegular]];
+	cell.textLabel.adjustsFontForContentSizeCategory = YES;
+	cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
 	cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
 	return cell;
 }

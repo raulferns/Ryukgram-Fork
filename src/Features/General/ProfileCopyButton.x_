@@ -5,6 +5,7 @@
 #import "../../Utils.h"
 #import "../../InstagramHeaders.h"
 #import "../../SCIChrome.h"
+#import "../../../modules/JGProgressHUD/JGProgressHUD.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <substrate.h>
@@ -81,56 +82,15 @@ static void sci_copyAndToast(NSString *value, NSString *label) {
 
 	UIPasteboard.generalPasteboard.string = value;
 
+	JGProgressHUD *hud = [[JGProgressHUD alloc] init];
+	hud.textLabel.text = [NSString stringWithFormat:@"Copied %@", label];
+	hud.indicatorView = [[JGProgressHUDSuccessIndicatorView alloc] init];
+
 	UIView *host = sci_keyWindow();
 	if (!host) return;
 
-	// Native lightweight success HUD (no third-party dependency, so nothing extra
-	// needs to be linked — JGProgressHUD is not bundled in this tweak).
-	UIView *hud = [[UIView alloc] init];
-	hud.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.82];
-	hud.layer.cornerRadius = 14.0;
-	hud.layer.cornerCurve = kCACornerCurveContinuous;
-	hud.alpha = 0.0;
-	hud.userInteractionEnabled = NO;
-	hud.translatesAutoresizingMaskIntoConstraints = NO;
-
-	UIImageView *check = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"checkmark.circle.fill"]];
-	check.tintColor = UIColor.whiteColor;
-	check.contentMode = UIViewContentModeScaleAspectFit;
-	check.translatesAutoresizingMaskIntoConstraints = NO;
-
-	UILabel *text = [[UILabel alloc] init];
-	text.text = [NSString stringWithFormat:@"Copied %@", label];
-	text.textColor = UIColor.whiteColor;
-	text.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
-	text.textAlignment = NSTextAlignmentCenter;
-	text.translatesAutoresizingMaskIntoConstraints = NO;
-
-	[hud addSubview:check];
-	[hud addSubview:text];
-	[host addSubview:hud];
-
-	[NSLayoutConstraint activateConstraints:@[
-		[hud.centerXAnchor constraintEqualToAnchor:host.centerXAnchor],
-		[hud.centerYAnchor constraintEqualToAnchor:host.centerYAnchor],
-		[hud.widthAnchor constraintGreaterThanOrEqualToConstant:140.0],
-		[check.topAnchor constraintEqualToAnchor:hud.topAnchor constant:20.0],
-		[check.centerXAnchor constraintEqualToAnchor:hud.centerXAnchor],
-		[check.widthAnchor constraintEqualToConstant:40.0],
-		[check.heightAnchor constraintEqualToConstant:40.0],
-		[text.topAnchor constraintEqualToAnchor:check.bottomAnchor constant:12.0],
-		[text.leadingAnchor constraintEqualToAnchor:hud.leadingAnchor constant:18.0],
-		[text.trailingAnchor constraintEqualToAnchor:hud.trailingAnchor constant:-18.0],
-		[text.bottomAnchor constraintEqualToAnchor:hud.bottomAnchor constant:-18.0],
-	]];
-
-	[UIView animateWithDuration:0.2 animations:^{ hud.alpha = 1.0; } completion:^(__unused BOOL done) {
-		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-			[UIView animateWithDuration:0.25 animations:^{ hud.alpha = 0.0; } completion:^(__unused BOOL d2) {
-				[hud removeFromSuperview];
-			}];
-		});
-	}];
+	[hud showInView:host];
+	[hud dismissAfterDelay:1.5];
 }
 
 @interface SCIProfileCopyTarget : NSObject

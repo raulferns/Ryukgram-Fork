@@ -1,11 +1,6 @@
 #import "../../Utils.h"
 #import <objc/runtime.h>
 #import <substrate.h>
-#import <os/log.h>
-#include <stdatomic.h>
-
-// Instrumentation: confirm the canonical employee gate is actually consulted.
-static atomic_int g_isEmployeeHits = 0;
 
 static BOOL sciDevMaster(void) { return [SCIUtils getBoolPref:@"sci_force_ig_internal_employee"]; }
 static BOOL sciDevGate(NSString *key) { return sciDevMaster() || [SCIUtils getBoolPref:key]; }
@@ -24,23 +19,6 @@ static BOOL sciDevAnyGateEnabled(void) {
 
 %hook IGAdPlatformLogger_objc
 - (BOOL)isEmployee { return sciDevGate(@"sci_force_ig_is_employee") ? YES : %orig; }
-%end
-
-// IGFacebookUserInfo.isEmployee is the canonical "am I a Meta employee" check in
-// FBSharedFramework — it is what gates the "Internal Settings" row in the native
-// Settings list (and the broader internal/dogfood surfaces). This is ObjC, so
-// objc_msgSend callers are caught by %hook. The previous build only forced the
-// ads-logger isEmployee, which does NOT surface the internal menus — this is the
-// fix. The counter/log proves on-device whether this getter is actually consulted.
-%hook IGFacebookUserInfo
-- (BOOL)isEmployee {
-	if (sciDevGate(@"sci_force_ig_is_employee")) {
-		if (atomic_fetch_add_explicit(&g_isEmployeeHits, 1, memory_order_relaxed) == 0)
-			os_log(OS_LOG_DEFAULT, "[SCI] IGFacebookUserInfo.isEmployee forced YES (gate is consulted)");
-		return YES;
-	}
-	return %orig;
-}
 %end
 
 %hook IGFeaturedUserInfo

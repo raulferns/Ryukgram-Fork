@@ -1,4 +1,5 @@
 #import "SCISettingsSections.h"
+#import "../SCISymbolsBrowserViewController.h"
 
 @implementation SCITweakSettings (Section_Advanced)
 
@@ -51,6 +52,10 @@
 											@"footer": SCILocalized(@"Toggle hidden Instagram experiments. Some may not work on every account or IG version."),
 											@"rows": @[
 												[self experimentalEntryCell],
+								[SCISetting navigationCellWithTitle:SCILocalized(@"FBShared C Symbols Browser")
+												   subtitle:SCILocalized(@"Runtime browser for FBShared exported C symbols with safe BOOL stubs")
+												       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"function"]
+											viewController:[SCISymbolsBrowserViewController new]],
 											]
 										}]
 				];

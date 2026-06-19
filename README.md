@@ -388,3 +388,15 @@ RyukGram is free and open source. If you'd like to support development:
 
 - [☕ Donate to Ryuk (RyukGram)](https://buymeacoffee.com/axryuk)
 - [☕ Donate to SoCuul (original SCInsta)](https://ko-fi.com/SoCuul) — RyukGram wouldn't exist without SoCuul's original SCInsta, so showing them some love is always welcome
+
+### v32 ABI-aware runtime browser
+
+The C symbol browser is no longer diagnostic-only. Validated return classes now map to ABI-aware runtime replacements:
+
+- bool -> w0 hardstub/force
+- int32/int64 -> x0/w0 typed numeric force
+- double -> d0 typed force
+- string/pointer -> x0 typed string/pointer force
+- action/registration -> observe-only wrapper that calls original
+
+DATA symbols are intentionally not function-hooked; use the DATA/param descriptor browser to identify the consumer/reader.

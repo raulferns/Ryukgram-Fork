@@ -24,9 +24,19 @@ static NSString *const kSCIMobileConfigCustomOverridesKey = @"sci_mobileconfig_c
         @"sci_force_ig_launch_debug_info_v2",
         @"sci_force_ig_story_debug_underlay",
         kSCIMobileConfigMasterKey,
+        @"sci_force_all_mc_gates",
         @"sci_force_mc_internal_use_boolean",
         @"sci_force_ig_internal_apps_installed_after_ios18",
         @"sci_force_minos_dogfood_mek_encryption",
+        @"sci_force_easy_gating_all",
+        @"sci_force_easy_gating_internal",
+        @"sci_force_easy_gating_auth",
+        @"sci_force_easy_gating_mcq",
+        @"sci_force_easy_gating_platform",
+        @"sci_force_sessioned_mc_all",
+        @"sci_force_msgc_sessioned_boolean",
+        @"sci_force_mci_experiment_boolean",
+        @"sci_force_mci_extension_boolean",
         @"sci_force_mobileconfig_overrides",
         @"sci_force_mobileconfig_try_update",
         @"sci_force_mobileconfig_force_update",
@@ -90,28 +100,16 @@ static NSString *const kSCIMobileConfigCustomOverridesKey = @"sci_mobileconfig_c
     dispatch_once(&onceToken, ^{
         if (![SCIUtils getBoolPref:kSCIInternalGateCrashGuardEnabledKey]) return;
 
-        // A previous launch armed but never reached the stable marker. That can be
-        // an unrelated early crash, so do NOT nuke every gate on the first strike:
-        // require 3 consecutive early-crash launches before disabling. A single
-        // stable launch (the 15s marker below) resets the strike counter to 0.
         NSArray<NSString *> *pending = [SCIUtils getArrayPref:kSCIInternalGateCrashPendingKeysKey];
         if (pending.count) {
-            NSInteger strikes = [[SCIUtils getStringPref:@"sci_internal_gate_crash_strikes"] integerValue];
-            // getStringPref may not exist for an int; read via NSUserDefaults integer.
-            strikes = [[NSUserDefaults standardUserDefaults] integerForKey:@"sci_internal_gate_crash_strikes"] + 1;
-            [[NSUserDefaults standardUserDefaults] setInteger:strikes forKey:@"sci_internal_gate_crash_strikes"];
-            if (strikes >= 3) {
-                NSMutableOrderedSet<NSString *> *disabled = [NSMutableOrderedSet orderedSetWithArray:pending];
-                for (NSString *key in [self activeGateKeys]) [disabled addObject:key];
-                for (NSString *key in disabled) [SCIUtils setPref:@NO forKey:key];
-                [SCIUtils setPref:disabled.array forKey:kSCIInternalGateCrashDisabledKeysKey];
-                [SCIUtils setPref:nil forKey:kSCIInternalGateCrashPendingKeysKey];
-                [[NSUserDefaults standardUserDefaults] setInteger:0 forKey:@"sci_internal_gate_crash_strikes"];
-                [SCIUtils setPref:@"3 consecutive early-crash launches" forKey:kSCIInternalGateCrashLastSourceKey];
-                return;
-            }
-            // Under threshold: clear pending and re-arm below without disabling.
+            NSMutableOrderedSet<NSString *> *disabled = [NSMutableOrderedSet orderedSetWithArray:pending];
+            for (NSString *key in [self activeGateKeys]) [disabled addObject:key];
+            for (NSString *key in disabled) [SCIUtils setPref:@NO forKey:key];
+            [SCIUtils setPref:disabled.array forKey:kSCIInternalGateCrashDisabledKeysKey];
             [SCIUtils setPref:nil forKey:kSCIInternalGateCrashPendingKeysKey];
+            [SCIUtils setPref:@"previous launch did not reach stable marker" forKey:kSCIInternalGateCrashLastSourceKey];
+            [NSUserDefaults.standardUserDefaults synchronize];
+            return;
         }
 
         NSArray<NSString *> *active = [self activeGateKeys];
@@ -119,13 +117,13 @@ static NSString *const kSCIMobileConfigCustomOverridesKey = @"sci_mobileconfig_c
 
         [SCIUtils setPref:active forKey:kSCIInternalGateCrashPendingKeysKey];
         [SCIUtils setPref:@"armed" forKey:kSCIInternalGateCrashLastSourceKey];
+        [NSUserDefaults.standardUserDefaults synchronize];
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             NSArray<NSString *> *current = [SCIUtils getArrayPref:kSCIInternalGateCrashPendingKeysKey];
             if ([current isEqualToArray:active]) {
                 [SCIUtils setPref:nil forKey:kSCIInternalGateCrashPendingKeysKey];
                 [SCIUtils setPref:nil forKey:kSCIInternalGateCrashLastSourceKey];
-                [[NSUserDefaults standardUserDefaults] setInteger:0 forKey:@"sci_internal_gate_crash_strikes"];
             }
         });
     });
