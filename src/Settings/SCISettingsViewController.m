@@ -7,8 +7,159 @@
 #import "../SCIImageCache.h"
 #import "../Tweak.h"
 #import "../UI/SCIColorPicker.h"
+#import "../UI/SCIOptionSheet.h"
 
 static char kSCIRowKey;
+
+static const CGFloat kSCISettingsStandardIconBox = 23.0;
+static const CGFloat kSCISettingsWordmarkAccessoryWidth = 84.0;
+static const CGFloat kSCISettingsWordmarkAccessoryHeight = 22.0;
+
+
+static BOOL SCIMenuContainsDefaultsKey(UIMenu *menu, NSString *defaultsKey) {
+	if (!menu || !defaultsKey.length) return NO;
+	for (UIMenuElement *el in menu.children) {
+		if ([el isKindOfClass:UIMenu.class]) {
+			if (SCIMenuContainsDefaultsKey((UIMenu *)el, defaultsKey)) return YES;
+			continue;
+		}
+		if (![el isKindOfClass:UICommand.class]) continue;
+		NSDictionary *props = [((UICommand *)el).propertyList isKindOfClass:NSDictionary.class] ? ((UICommand *)el).propertyList : nil;
+		if ([props[@"defaultsKey"] isEqualToString:defaultsKey]) return YES;
+	}
+	return NO;
+}
+
+
+static NSString *SCISettingsWordmarkDisplayTitleForValue(NSString *value, NSString *fallback) {
+	if ([value isEqualToString:@"off"]) return SCILocalized(@"Default");
+	if ([value isEqualToString:@"1a"]) return SCILocalized(@"Wordmark 1");
+	if ([value isEqualToString:@"1a_alt"]) return SCILocalized(@"Wordmark 1A");
+	if ([value isEqualToString:@"1b"]) return SCILocalized(@"Wordmark 2");
+	if ([value isEqualToString:@"1b_alt"]) return SCILocalized(@"Wordmark 2A");
+	return fallback ?: @"";
+}
+
+static NSString *SCISettingsWordmarkImageNameForValue(NSString *value) {
+	NSString *v = value.length ? value : @"off";
+	if ([v isEqualToString:@"1a"]) return @"instagram-wordmark-1a";
+	if ([v isEqualToString:@"1a_alt"]) return @"instagram-wordmark-1a-alt";
+	if ([v isEqualToString:@"1b"]) return @"instagram-wordmark-1b";
+	if ([v isEqualToString:@"1b_alt"]) return @"instagram-wordmark-1b-alt";
+	return @"instagram-wordmark-default";
+}
+
+static UIImage *SCISettingsBundleImageNamed(NSString *name) {
+	NSBundle *bundle = SCILocalizationBundle();
+	UIImage *img = bundle ? [UIImage imageNamed:name inBundle:bundle compatibleWithTraitCollection:nil] : nil;
+	if (!img) img = [UIImage imageNamed:name];
+	return img;
+}
+
+static UIImage *SCISettingsTrimTransparentTemplateImage(UIImage *image) {
+	if (!image) return nil;
+	CGImageRef cg = image.CGImage;
+	if (!cg) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	size_t width = CGImageGetWidth(cg);
+	size_t height = CGImageGetHeight(cg);
+	if (width == 0 || height == 0 || width > 4096 || height > 4096) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	size_t bytesPerRow = width * 4;
+	NSMutableData *data = [NSMutableData dataWithLength:bytesPerRow * height];
+	CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+	CGContextRef ctx = CGBitmapContextCreate(data.mutableBytes, width, height, 8, bytesPerRow, colorSpace, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+	if (colorSpace) CGColorSpaceRelease(colorSpace);
+	if (!ctx) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), cg);
+	CGContextRelease(ctx);
+	const UInt8 *bytes = (const UInt8 *)data.bytes;
+	size_t minX = width, minY = height, maxX = 0, maxY = 0;
+	BOOL found = NO;
+	for (size_t y = 0; y < height; y++) {
+		const UInt8 *row = bytes + y * bytesPerRow;
+		for (size_t x = 0; x < width; x++) {
+			UInt8 alpha = row[x * 4 + 3];
+			if (alpha <= 8) continue;
+			found = YES;
+			if (x < minX) minX = x;
+			if (y < minY) minY = y;
+			if (x > maxX) maxX = x;
+			if (y > maxY) maxY = y;
+		}
+	}
+	if (!found) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	CGFloat pad = 2.0 * MAX(image.scale, 1.0);
+	CGFloat originX = MAX(0.0, (CGFloat)minX - pad);
+	CGFloat originY = MAX(0.0, (CGFloat)minY - pad);
+	CGFloat endX = MIN((CGFloat)width, (CGFloat)maxX + 1.0 + pad);
+	CGFloat endY = MIN((CGFloat)height, (CGFloat)maxY + 1.0 + pad);
+	CGRect cropRect = CGRectMake(originX, originY, MAX(1.0, endX - originX), MAX(1.0, endY - originY));
+	if (CGRectEqualToRect(cropRect, CGRectMake(0, 0, width, height))) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	CGImageRef cropped = CGImageCreateWithImageInRect(cg, cropRect);
+	if (!cropped) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	UIImage *trimmed = [UIImage imageWithCGImage:cropped scale:image.scale orientation:image.imageOrientation];
+	CGImageRelease(cropped);
+	return [trimmed imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+}
+
+static BOOL SCISettingsScanSelectedMenuTitle(UIMenu *menu, NSString **firstTitle, NSString **matchedTitle) {
+	if (!menu || (matchedTitle && (*matchedTitle).length)) return YES;
+	for (UIMenuElement *el in menu.children) {
+		if ([el isKindOfClass:UIMenu.class]) {
+			SCISettingsScanSelectedMenuTitle((UIMenu *)el, firstTitle, matchedTitle);
+			if (matchedTitle && (*matchedTitle).length) return YES;
+			continue;
+		}
+		if (![el isKindOfClass:UICommand.class]) continue;
+		UICommand *cmd = (UICommand *)el;
+		if (firstTitle && !(*firstTitle).length && cmd.title.length) *firstTitle = cmd.title;
+		if (cmd.state == UIMenuElementStateOn && cmd.title.length) {
+			if (matchedTitle) *matchedTitle = cmd.title;
+			return YES;
+		}
+		NSDictionary *props = [cmd.propertyList isKindOfClass:NSDictionary.class] ? cmd.propertyList : nil;
+		NSString *key = [props[@"defaultsKey"] isKindOfClass:NSString.class] ? props[@"defaultsKey"] : nil;
+		NSString *value = [props[@"value"] isKindOfClass:NSString.class] ? props[@"value"] : nil;
+		if (!key.length || !value.length) continue;
+		id raw = [NSUserDefaults.standardUserDefaults objectForKey:key];
+		NSString *saved = [raw isKindOfClass:NSString.class] ? raw : nil;
+		if (!saved.length) saved = @"default";
+		if ([value isEqualToString:saved]) {
+			if (matchedTitle) *matchedTitle = cmd.title ?: @"";
+			return YES;
+		}
+	}
+	return NO;
+}
+
+static NSString *SCISettingsSelectedMenuTitle(UIMenu *menu) {
+	NSString *firstTitle = nil;
+	NSString *matchedTitle = nil;
+	SCISettingsScanSelectedMenuTitle(menu, &firstTitle, &matchedTitle);
+	if (matchedTitle.length) return matchedTitle;
+	if (firstTitle.length) return firstTitle;
+	return SCILocalized(@"Default");
+}
+
+static UIImage *SCISettingsScaledTemplateBundleImage(NSString *name, CGSize maxSize) {
+	UIImage *img = SCISettingsBundleImageNamed(name);
+	if (!img) return nil;
+	img = SCISettingsTrimTransparentTemplateImage(img);
+	CGSize size = img.size;
+	if (size.width <= 0.0 || size.height <= 0.0) return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	CGFloat ratio = MIN(maxSize.width / size.width, maxSize.height / size.height);
+	if (ratio <= 0.0) ratio = 1.0;
+	// Downscale and upscale intentionally here. The closed accessory is a preview,
+	// not the source asset; it must visually fill the same right-side slot every time.
+	CGSize target = CGSizeMake(ceil(size.width * ratio), ceil(size.height * ratio));
+	UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
+	fmt.opaque = NO;
+	fmt.scale = UIScreen.mainScreen.scale;
+	UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:target format:fmt];
+	UIImage *scaled = [renderer imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull ctx) {
+		[img drawInRect:CGRectMake(0.0, 0.0, target.width, target.height)];
+	}];
+	return [scaled imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+}
 
 #pragma mark - Language Picker
 
@@ -467,12 +618,19 @@ static char kSCIRowKey;
 
 - (void)configureIconForRow:(SCISetting *)row config:(UIListContentConfiguration *)config indexPath:(NSIndexPath *)ip tableView:(UITableView *)tv {
 	if (row.iconImage) {
-		config.image = row.iconImage;
-		config.imageToTextPadding = 14.0;
+		config.image = [row.iconImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+		config.imageProperties.tintColor = UIColor.labelColor;
+
+		// Match the rest of the tweak: settings icons sit on the standard
+		// UIListContentConfiguration image rail. Asset-backed icons are capped
+		// to the same visual box as SCISymbol/Apply/Reset rows; no negative
+		// margins and no per-row left offsets.
+		config.imageProperties.maximumSize = CGSizeMake(kSCISettingsStandardIconBox, kSCISettingsStandardIconBox);
 	}
 	if (row.icon) {
 		config.image = [row.icon image];
 		config.imageProperties.tintColor = row.icon.color;
+		config.imageProperties.maximumSize = CGSizeMake(kSCISettingsStandardIconBox, kSCISettingsStandardIconBox);
 	}
 	if (row.imageUrl) {
 		config.imageToTextPadding = 14.0;
@@ -546,26 +704,51 @@ static char kSCIRowKey;
 		}
 		case SCITableCellMenu: {
 			UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-			[b setTitle:@"•••" forState:UIControlStateNormal];
 			b.enabled = !row.disabled;
 			b.titleLabel.font = [UIFont systemFontOfSize:[UIFont preferredFontForTextStyle:UIFontTextStyleBody].pointSize weight:UIFontWeightMedium];
 			b.titleLabel.numberOfLines = 1;
 			b.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
 			b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-			SCIUIKit26ConfigureButton(b);
-			UIButtonConfiguration *bc = b.configuration ?: UIButtonConfiguration.plainButtonConfiguration;
-			bc.contentInsets = NSDirectionalEdgeInsetsMake(8.0, 12.0, 8.0, 12.0);
-			bc.titleLineBreakMode = NSLineBreakByTruncatingTail;
-			b.configuration = bc;
-			b.menu = [row menuForButton:b];
-			b.showsMenuAsPrimaryAction = YES;
-			[b.widthAnchor constraintGreaterThanOrEqualToConstant:74.0].active = YES;
-			[b.widthAnchor constraintLessThanOrEqualToConstant:156.0].active = YES;
+			UIMenu *resolvedMenu = [row menuForButton:b];
+			BOOL isWordmarkMenu = SCIMenuContainsDefaultsKey(resolvedMenu, @"sci_ig_wordmark_variant");
+			if (isWordmarkMenu) {
+				NSString *saved = [NSUserDefaults.standardUserDefaults stringForKey:@"sci_ig_wordmark_variant"] ?: @"off";
+				UIImage *wordmark = SCISettingsScaledTemplateBundleImage(SCISettingsWordmarkImageNameForValue(saved), CGSizeMake(kSCISettingsWordmarkAccessoryWidth - 8.0, kSCISettingsWordmarkAccessoryHeight - 4.0));
+				[b setTitle:nil forState:UIControlStateNormal];
+				[b setAttributedTitle:nil forState:UIControlStateNormal];
+				b.titleLabel.hidden = YES;
+				b.clipsToBounds = YES;
+				b.tintColor = UIColor.labelColor;
+				b.backgroundColor = UIColor.clearColor;
+				b.contentEdgeInsets = UIEdgeInsetsZero;
+				if (wordmark) {
+					[b setImage:wordmark forState:UIControlStateNormal];
+					b.imageView.contentMode = UIViewContentModeScaleAspectFit;
+				} else {
+					[b setImage:[[UIImage systemImageNamed:@"textformat"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] forState:UIControlStateNormal];
+				}
+				b.configuration = nil;
+			} else {
+				NSString *selectedTitle = SCISettingsSelectedMenuTitle(resolvedMenu);
+				[b setTitle:(selectedTitle.length ? selectedTitle : SCILocalized(@"Default")) forState:UIControlStateNormal];
+				SCIUIKit26ConfigureButton(b);
+				UIButtonConfiguration *bc = b.configuration ?: UIButtonConfiguration.plainButtonConfiguration;
+				bc.title = selectedTitle.length ? selectedTitle : SCILocalized(@"Default");
+				bc.contentInsets = NSDirectionalEdgeInsetsMake(8.0, 12.0, 8.0, 12.0);
+				bc.titleLineBreakMode = NSLineBreakByTruncatingTail;
+				b.configuration = bc;
+			}
+			[b addTarget:self action:@selector(menuButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+			objc_setAssociatedObject(b, &kSCIRowKey, row, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			[b.widthAnchor constraintGreaterThanOrEqualToConstant:(isWordmarkMenu ? kSCISettingsWordmarkAccessoryWidth : 74.0)].active = YES;
+			[b.widthAnchor constraintLessThanOrEqualToConstant:(isWordmarkMenu ? kSCISettingsWordmarkAccessoryWidth : 156.0)].active = YES;
+			[b.heightAnchor constraintGreaterThanOrEqualToConstant:(isWordmarkMenu ? kSCISettingsWordmarkAccessoryHeight : 36.0)].active = YES;
 			[b sizeToFit];
 			cell.accessoryView = b;
 			cell.selectionStyle = UITableViewCellSelectionStyleNone;
 			break;
 		}
+
 		case SCITableCellColor:
 			cell.accessoryView = [SCIColorPicker swatchViewForKey:row.defaultsKey defaultColor:row.defaultColor];
 			break;
@@ -644,6 +827,18 @@ static char kSCIRowKey;
 	if (!row.defaultsKey.length) return;
 	[NSUserDefaults.standardUserDefaults setDouble:sender.value forKey:row.defaultsKey];
 	[self reloadCellForView:sender animated:NO];
+}
+
+- (void)menuButtonTapped:(UIButton *)sender {
+	SCISetting *row = objc_getAssociatedObject(sender, &kSCIRowKey);
+	if (!row || !row.baseMenu) return;
+	UIMenu *menu = [row menuForButton:sender];
+	__weak typeof(self) weakSelf = self;
+	[SCIOptionSheet presentFrom:self title:row.title menu:menu sourceView:sender onPick:^(UICommand *command) {
+		__strong typeof(weakSelf) self = weakSelf;
+		if (!self || !command) return;
+		[self menuChanged:command];
+	}];
 }
 
 - (void)menuChanged:(UICommand *)command {

@@ -104,7 +104,7 @@ void SCIConfigureNavigationChromeForGlass(UIViewController *vc) {
             UINavigationBarAppearance *appearance = [UINavigationBarAppearance new];
             [appearance configureWithTransparentBackground];
             appearance.backgroundColor = UIColor.clearColor;
-            appearance.backgroundEffect = SCIUIKit26GlassEffect(YES, NO, nil);
+            appearance.backgroundEffect = SCIUIKit26GlassEffect(NO, NO, nil);
             appearance.shadowColor = UIColor.clearColor;
             bar.standardAppearance = appearance;
             bar.scrollEdgeAppearance = appearance;
@@ -118,7 +118,7 @@ void SCIConfigureNavigationChromeForGlass(UIViewController *vc) {
         UIToolbarAppearance *appearance = [UIToolbarAppearance new];
         [appearance configureWithTransparentBackground];
         appearance.backgroundColor = UIColor.clearColor;
-        appearance.backgroundEffect = SCIUIKit26GlassEffect(YES, NO, nil);
+        appearance.backgroundEffect = SCIUIKit26GlassEffect(NO, NO, nil);
         appearance.shadowColor = UIColor.clearColor;
         toolbar.standardAppearance = appearance;
         if (@available(iOS 15.0, *)) toolbar.scrollEdgeAppearance = appearance;
@@ -299,7 +299,7 @@ void SCIUIKit26ConfigureTabBar(UITabBar *tabBar) {
         UITabBarAppearance *appearance = [UITabBarAppearance new];
         [appearance configureWithTransparentBackground];
         appearance.backgroundColor = UIColor.clearColor;
-        appearance.backgroundEffect = SCIUIKit26GlassEffect(YES, NO, nil);
+        appearance.backgroundEffect = SCIUIKit26GlassEffect(NO, NO, nil);
         appearance.shadowColor = UIColor.clearColor;
         tabBar.standardAppearance = appearance;
         if (@available(iOS 15.0, *)) tabBar.scrollEdgeAppearance = appearance;
@@ -435,7 +435,7 @@ static UIVisualEffectView *SCIUIKit26EnsureGlassBackground(UIView *view, CGFloat
 - (void)applyLiquidGlassStyle {
     self.effect = SCIUIKit26GlassEffect(self.sciGlassClearStyle, self.sciGlassInteractive, self.sciGlassTintColor);
     self.backgroundColor = UIColor.clearColor;
-    self.contentView.backgroundColor = SCIUIKit26PanelFillColor();
+    self.contentView.backgroundColor = self.sciGlassClearStyle ? UIColor.clearColor : SCIUIKit26PanelFillColor();
     self.layer.cornerRadius = self.sciCornerRadius;
     if ([self.layer respondsToSelector:@selector(setCornerCurve:)]) self.layer.cornerCurve = kCACornerCurveContinuous;
     self.layer.masksToBounds = YES;

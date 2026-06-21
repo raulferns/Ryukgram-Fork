@@ -6,7 +6,7 @@
 static UIImage *SCIWordmarkMenuImage(NSString *name) {
     NSBundle *bundle = SCILocalizationBundle();
     UIImage *img = bundle ? [UIImage imageNamed:name inBundle:bundle compatibleWithTraitCollection:nil] : nil;
-    return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    return img ? [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] : nil;
 }
 
 @implementation SCITweakSettings (Section_Menus)
@@ -279,23 +279,23 @@ static UIImage *SCIWordmarkMenuImage(NSString *name) {
 			[UICommand commandWithTitle:SCILocalized(@"Default")
 								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-default") ?: [UIImage systemImageNamed:@"textformat"])
 								 action:@selector(menuChanged:)
-						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"off"}],
+						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"off", @"wordmarkImageName": @"instagram-wordmark-default", @"noTitle": @YES}],
+			[UICommand commandWithTitle:SCILocalized(@"Wordmark 1")
+								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-1a-alt") ?: [UIImage systemImageNamed:@"1.circle"])
+								 action:@selector(menuChanged:)
+						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"1a_alt", @"wordmarkImageName": @"instagram-wordmark-1a-alt", @"noTitle": @YES}],
 			[UICommand commandWithTitle:SCILocalized(@"Wordmark 2")
-								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-1a-alt") ?: [UIImage systemImageNamed:@"1.circle.fill"])
+								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-1a") ?: [UIImage systemImageNamed:@"2.circle"])
 								 action:@selector(menuChanged:)
-						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"1a_alt"}],
+						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"1a", @"wordmarkImageName": @"instagram-wordmark-1a", @"noTitle": @YES}],
 			[UICommand commandWithTitle:SCILocalized(@"Wordmark 3")
-								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-1a") ?: [UIImage systemImageNamed:@"2.circle.fill"])
+								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-1b-alt") ?: [UIImage systemImageNamed:@"3.circle"])
 								 action:@selector(menuChanged:)
-						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"1a"}],
+						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"1b_alt", @"wordmarkImageName": @"instagram-wordmark-1b-alt", @"noTitle": @YES}],
 			[UICommand commandWithTitle:SCILocalized(@"Wordmark 4")
-								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-1b-alt") ?: [UIImage systemImageNamed:@"3.circle.fill"])
+								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-1b") ?: [UIImage systemImageNamed:@"4.circle"])
 								 action:@selector(menuChanged:)
-						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"1b_alt"}],
-			[UICommand commandWithTitle:SCILocalized(@"Wordmark 5")
-								  image:(SCIWordmarkMenuImage(@"instagram-wordmark-1b") ?: [UIImage systemImageNamed:@"4.circle.fill"])
-								 action:@selector(menuChanged:)
-						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"1b"}],
+						   propertyList:@{@"defaultsKey": @"sci_ig_wordmark_variant", @"value": @"1b", @"wordmarkImageName": @"instagram-wordmark-1b", @"noTitle": @YES}],
 		]],
 
 		@"liquid_glass_tabbar_mode": [UIMenu menuWithChildren:@[

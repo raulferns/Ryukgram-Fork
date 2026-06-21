@@ -267,13 +267,28 @@ static SCICStubSlot *slot_for(const char *name) {
     return NULL;
 }
 
+typedef bool (*SCICOrigBool8)(void *, void *, void *, void *, void *, void *, void *, void *);
+typedef int32_t (*SCICOrigInt32_8)(void *, void *, void *, void *, void *, void *, void *, void *);
+typedef int64_t (*SCICOrigInt64_8)(void *, void *, void *, void *, void *, void *, void *, void *);
+typedef double (*SCICOrigDouble8)(void *, void *, void *, void *, void *, void *, void *, void *);
+typedef void *(*SCICOrigPtr8)(void *, void *, void *, void *, void *, void *, void *, void *);
+
 static bool call_orig_bool(SCICStubSlot *s, void *a0, void *a1, void *a2, void *a3, void *a4, void *a5, void *a6, void *a7) {
-    (void)a4; (void)a5; (void)a6; (void)a7;
     if (!s || !s->orig) return false;
     switch (s->profile) {
         case SCICStubProfileIGMobileConfigBoolean: { bool (*o)(void *, bool, void *) = (void *)s->orig; return o(a0, ((uintptr_t)a1) != 0, a2); }
-        case SCICStubProfileEasyGatingBoolean: { bool (*o)(uint32_t) = (void *)s->orig; return o((uint32_t)((uintptr_t)a0)); }
-        case SCICStubProfileEasyGatingAuthBoolean: { bool (*o)(void *, void *, void *, void *) = (void *)s->orig; return o(a0, a1, a2, a3); }
+        case SCICStubProfileEasyGatingBoolean:
+        case SCICStubProfileEasyGatingAuthBoolean: {
+            // EasyGating readers in IG 434 are generated C++/MCI readers, not
+            // a uint32_t-only function. They receive the full call context in
+            // x0-x7 and dereference x1/x2/x3/x4 in the original body. Calling
+            // orig as bool(uint32_t) leaves those registers garbage and crashes
+            // inside EasyGatingGetBoolean_Internal_DoNotUseOrMock during cold
+            // launch. Preserve all argument registers and only override the
+            // return after the native reader has completed.
+            SCICOrigBool8 o = (SCICOrigBool8)s->orig;
+            return o(a0, a1, a2, a3, a4, a5, a6, a7);
+        }
         case SCICStubProfileMSGCSessionedBoolean: { bool (*o)(void *, void *, void *) = (void *)s->orig; return o(a0, a1, a2); }
         case SCICStubProfileNoArgBool: { bool (*o)(void) = (void *)s->orig; return o(); }
         default: return false;
@@ -281,31 +296,28 @@ static bool call_orig_bool(SCICStubSlot *s, void *a0, void *a1, void *a2, void *
 }
 
 static int64_t call_orig_int64(SCICStubSlot *s, void *a0, void *a1, void *a2, void *a3, void *a4, void *a5, void *a6, void *a7) {
-    (void)a3; (void)a4; (void)a5; (void)a6; (void)a7;
     if (!s || !s->orig) return 0;
     switch (s->profile) {
         case SCICStubProfileIGMobileConfigInteger: { int64_t (*o)(void *, int64_t, void *) = (void *)s->orig; return o(a0, (int64_t)((intptr_t)a1), a2); }
-        case SCICStubProfileEasyGatingInt32: { int32_t (*o)(uint32_t) = (void *)s->orig; return (int64_t)o((uint32_t)((uintptr_t)a0)); }
-        case SCICStubProfileEasyGatingInt64: { int64_t (*o)(uint32_t) = (void *)s->orig; return o((uint32_t)((uintptr_t)a0)); }
+        case SCICStubProfileEasyGatingInt32: { SCICOrigInt32_8 o = (SCICOrigInt32_8)s->orig; return (int64_t)o(a0, a1, a2, a3, a4, a5, a6, a7); }
+        case SCICStubProfileEasyGatingInt64: { SCICOrigInt64_8 o = (SCICOrigInt64_8)s->orig; return o(a0, a1, a2, a3, a4, a5, a6, a7); }
         default: return 0;
     }
 }
 
 static double call_orig_double(SCICStubSlot *s, void *a0, void *a1, void *a2, void *a3, void *a4, void *a5, void *a6, void *a7) {
-    (void)a1; (void)a2; (void)a3; (void)a4; (void)a5; (void)a6; (void)a7;
     if (!s || !s->orig) return 0.0;
     switch (s->profile) {
-        case SCICStubProfileEasyGatingDouble: { double (*o)(uint32_t) = (void *)s->orig; return o((uint32_t)((uintptr_t)a0)); }
+        case SCICStubProfileEasyGatingDouble: { SCICOrigDouble8 o = (SCICOrigDouble8)s->orig; return o(a0, a1, a2, a3, a4, a5, a6, a7); }
         default: return 0.0;
     }
 }
 
 static void *call_orig_ptr(SCICStubSlot *s, void *a0, void *a1, void *a2, void *a3, void *a4, void *a5, void *a6, void *a7) {
-    (void)a1; (void)a2; (void)a3; (void)a4; (void)a5; (void)a6; (void)a7;
     if (!s || !s->orig) return NULL;
     switch (s->profile) {
         case SCICStubProfileIGMobileConfigString: { void *(*o)(void *, void *, void *) = (void *)s->orig; return o(a0, a1, a2); }
-        case SCICStubProfileEasyGatingCopyString: { void *(*o)(uint32_t) = (void *)s->orig; return o((uint32_t)((uintptr_t)a0)); }
+        case SCICStubProfileEasyGatingCopyString: { SCICOrigPtr8 o = (SCICOrigPtr8)s->orig; return o(a0, a1, a2, a3, a4, a5, a6, a7); }
         case SCICStubProfileTALIdToName: { void *(*o)(uint64_t) = (void *)s->orig; return o((uint64_t)((uintptr_t)a0)); }
         default: return NULL;
     }

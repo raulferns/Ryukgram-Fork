@@ -2366,3 +2366,18 @@
 "read your message" = "leu sua mensagem";
 "Also track reads in group chats. Off by default — groups can be noisy" = "Também rastreia leituras em grupos. Desligado por padrão — grupos podem ser ruidosos";
 "Refreshing…" = "Atualizando…";
+"Instagram UI" = "Interface do Instagram";
+"Maps" = "Mapas";
+"Shows the map entry in Direct Notes" = "Mostra a entrada de mapa nas Notas de DM";
+"Stories Tray" = "Bandeja de Stories";
+"Custom Feed Header" = "Cabeçalho customizado do feed";
+"Wordmark 1" = "Wordmark 1";
+"Wordmark 1A" = "Wordmark 1A";
+"Wordmark 2" = "Wordmark 2";
+"Wordmark 2A" = "Wordmark 2A";
+
+"Friends Maps" = "Friends Maps";
+"Instagram Plus" = "Instagram Plus";
+"Forces all client-side Instagram Plus benefit getters" = "Força todos os getters client-side do Instagram Plus";
+"Wordmark 3" = "Wordmark 3";
+"Wordmark 4" = "Wordmark 4";

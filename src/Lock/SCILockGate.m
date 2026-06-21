@@ -5,6 +5,7 @@
 #import "SCILockedSurfaceNavigationController.h"
 #import "UI/SCILockPasscodeViewController.h"
 #import "../UI/SCIPopupChrome.h"
+#import "../UI/SCIUIKit26LiquidGlass.h"
 #import "../Localization/SCILocalization.h"
 
 @implementation SCILockGate
@@ -97,7 +98,8 @@ static BOOL sciGroupInheritsSettingsLock(NSString *gid) {
         SCILockedSurfaceNavigationController *nav = [[SCILockedSurfaceNavigationController alloc] initWithRootViewController:contentVC];
         nav.lockGroupID = groupID;
         nav.modalPresentationStyle = UIModalPresentationFullScreen;
-        [SCIPopupChrome applyBackdropTo:contentVC];
+        SCIUIKit26ApplyContainerBackgroundToViewController(nav);
+        SCIConfigureNavigationChromeForGlass(contentVC);
         if (!contentVC.navigationItem.leftBarButtonItem
             && !contentVC.navigationItem.leftBarButtonItems.count) {
             UIBarButtonItem *close = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"xmark"]

@@ -369,7 +369,7 @@ static BOOL SCICPatchMemory(uintptr_t address, NSData *bytes, NSData **snapshotO
     switch (plan.strategy) {
         case SCICRuntimePatchStrategyObjCBool: return [SCISymbolBrowserEngine overrideForKey:SCICObjCKey(plan.objcClassName, plan.objcSelectorName, plan.objcClassMethod)] != nil;
         case SCICRuntimePatchStrategyFunctionBool: return [SCICSymbolStub forceForSymbol:plan.symbol] != nil;
-        case SCICRuntimePatchStrategyFunctionTyped: return [SCICSymbolStub typedForceForSymbol:plan.symbol] != nil;
+        case SCICRuntimePatchStrategyFunctionTyped: return [SCICSymbolStub typedForceForSymbol:plan.symbol] != nil || [SCICSymbolStub observeForSymbol:plan.symbol];
         case SCICRuntimePatchStrategyFunctionObserve: return [SCICSymbolStub observeForSymbol:plan.symbol];
         case SCICRuntimePatchStrategyDataReaderBool: return [SCICSymbolStub forceForParamDescriptorSymbol:plan.symbol] != nil || [SCICSymbolStub observeForParamDescriptorSymbol:plan.symbol];
         case SCICRuntimePatchStrategyDataRebindString: return [self persistedPatchForSymbol:plan.symbol] != nil;
@@ -460,7 +460,11 @@ static BOOL SCICPatchMemory(uintptr_t address, NSData *bytes, NSData **snapshotO
             break;
         }
         case SCICRuntimePatchStrategyFunctionTyped: {
-            if (!value) { if (error) *error = [NSError errorWithDomain:@"SCICRuntimePatchResolver" code:20 userInfo:@{NSLocalizedDescriptionKey:@"typed value required"}]; return NO; }
+            if (!value) {
+                ok = [SCICSymbolStub setObserve:YES forSymbol:plan.symbol];
+                extra[@"observeOnly"] = @YES;
+                break;
+            }
             ok = [SCICSymbolStub setTypedForceValue:value returnKind:(plan.returnKind ?: [SCICSymbolStub returnKindForSymbol:plan.symbol] ?: @"int64") forSymbol:plan.symbol];
             extra[@"value"] = value;
             break;
@@ -516,7 +520,9 @@ static BOOL SCICPatchMemory(uintptr_t address, NSData *bytes, NSData **snapshotO
         case SCICRuntimePatchStrategyFunctionBool:
             ok = [SCICSymbolStub setForce:nil forSymbol:plan.symbol]; break;
         case SCICRuntimePatchStrategyFunctionTyped:
-            ok = [SCICSymbolStub setTypedForceValue:nil returnKind:(plan.returnKind ?: @"int64") forSymbol:plan.symbol]; break;
+            ok = [SCICSymbolStub setTypedForceValue:nil returnKind:(plan.returnKind ?: @"int64") forSymbol:plan.symbol];
+            [SCICSymbolStub setObserve:NO forSymbol:plan.symbol];
+            break;
         case SCICRuntimePatchStrategyFunctionObserve:
             ok = [SCICSymbolStub setObserve:NO forSymbol:plan.symbol]; break;
         case SCICRuntimePatchStrategyDataReaderBool:
@@ -556,7 +562,7 @@ static BOOL SCICPatchMemory(uintptr_t address, NSData *bytes, NSData **snapshotO
                     if ([SCICSymbolStub isForceableSymbol:plan.symbol] && [SCICSymbolStub forceForSymbol:plan.symbol] != nil) [SCICSymbolStub installStubForSymbol:plan.symbol];
                     break;
                 case SCICRuntimePatchStrategyFunctionTyped:
-                    if ([SCICSymbolStub isTypedForceableSymbol:plan.symbol] && [SCICSymbolStub typedForceForSymbol:plan.symbol] != nil) [SCICSymbolStub installStubForSymbol:plan.symbol];
+                    if ([SCICSymbolStub isTypedForceableSymbol:plan.symbol] && ([SCICSymbolStub typedForceForSymbol:plan.symbol] != nil || [SCICSymbolStub observeForSymbol:plan.symbol])) [SCICSymbolStub installStubForSymbol:plan.symbol];
                     break;
                 case SCICRuntimePatchStrategyFunctionObserve:
                     if ([SCICSymbolStub isHookableSymbol:plan.symbol] && [SCICSymbolStub observeForSymbol:plan.symbol]) [SCICSymbolStub installStubForSymbol:plan.symbol];

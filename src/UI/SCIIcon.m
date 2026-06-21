@@ -66,6 +66,14 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *SCIIconFriendlyMap(void)
             @"shield":       @[@"ig_icon_shield_pano_outline_24", @"ig_icon_shield_outline_24"],
             @"history":      @[@"ig_icon_history_pano_outline_24", @"ig_icon_history_outline_24"],
             @"globe":        @[@"bcn_globe_outline_24"],
+            @"friends_maps": @[@"bcn_globe_outline_24"],
+            // Advanced menu aliases resolve through the same FB catalog/SF pipeline
+            // as the rest of the tweak. Do not fall back to low-resolution custom
+            // PNGs for row icons unless these catalog icons disappear.
+            @"story_tray":   @[@"ig_icon_story_pano_outline_24", @"ig_icon_story_outline_24"],
+            @"custom_feed_header": @[@"ig_icon_layout_outline_24", @"ig_icon_feeds_outline_24"],
+            @"statusbar_oldschool": @[@"ig_icon_camera_outline_24"],
+            @"instagram_plus": @[@"ig_icon_add_pano_outline_24", @"ig_icon_add_outline_24"],
             @"action_button": @[@"ig_icon_app_instants_archive_outline_24"],
             @"hashtag":      @[@"bcn_hashtag_outline_24"],
             @"magnifyingglass": @[@"bcn_magnifying-glass-heavy_outline_24"],
@@ -133,6 +141,27 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *SCIIconFriendlyMap(void)
     return map;
 }
 
+// MARK: - Bundle asset aliases
+
+// Central registry for tweak-owned monochrome PNG icons. Settings sections should
+// refer to these friendly keys through SCISymbol/SCIIcon, the same way they refer
+// to FB catalog or SF symbols. Do not special-case these assets in per-section UI.
+static NSDictionary<NSString *, NSArray<NSString *> *> *SCIIconBundleAssetMap(void) {
+    static NSDictionary *map;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        map = @{
+            // Raw asset names stay available for direct bundle lookup, but the
+            // friendly setting aliases above intentionally resolve to catalog/SF
+            // icons first so row icons match the global tweak icon rail.
+            @"story-tray-icon": @[@"story-tray-icon"],
+            @"custom-feed-header-icon": @[@"custom-feed-header-icon"],
+            @"throwback-oldschool-icon": @[@"throwback-oldschool-icon"],
+        };
+    });
+    return map;
+}
+
 // MARK: - Internals
 
 static NSBundle *SCIIconFBBundle(void) {
@@ -154,7 +183,8 @@ static UIImage *SCIIconScale(UIImage *image, CGFloat pointSize) {
     CGFloat ratio = pointSize / maxDim;
     CGSize newSize = CGSizeMake(round(image.size.width * ratio), round(image.size.height * ratio));
     UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
-    fmt.scale = image.scale;
+    fmt.opaque = NO;
+    fmt.scale = image.scale > 0 ? image.scale : UIScreen.mainScreen.scale;
 
     UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:newSize format:fmt];
     UIImage *scaled = [renderer imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull ctx) {
@@ -183,10 +213,15 @@ static UIImage *SCIIconResolveSF(NSString *name, UIImageSymbolConfiguration *cfg
 }
 
 static UIImage *SCIIconResolveBundlePNG(NSString *name) {
+    if (name.length == 0) return nil;
     NSBundle *bundle = SCILocalizationBundle();
-    if (!bundle) return nil;
-    UIImage *img = [UIImage imageNamed:name inBundle:bundle compatibleWithTraitCollection:nil];
-    return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    NSArray<NSString *> *candidates = SCIIconBundleAssetMap()[name.lowercaseString] ?: @[name];
+    for (NSString *raw in candidates) {
+        UIImage *img = bundle ? [UIImage imageNamed:raw inBundle:bundle compatibleWithTraitCollection:nil] : nil;
+        if (!img) img = [UIImage imageNamed:raw];
+        if (img) return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    }
+    return nil;
 }
 
 static UIImageSymbolConfiguration *SCIIconConfig(CGFloat pointSize, UIImageSymbolWeight weight) {
@@ -213,7 +248,10 @@ static UIImageSymbolConfiguration *SCIIconConfig(CGFloat pointSize, UIImageSymbo
     if (fb) return SCIIconScale(fb, pointSize);
 
     UIImage *sf = SCIIconResolveSF(name, SCIIconConfig(pointSize, weight));
-    return sf ?: SCIIconResolveBundlePNG(name);
+    if (sf) return sf;
+
+    UIImage *bundle = SCIIconResolveBundlePNG(name);
+    return SCIIconScale(bundle, pointSize);
 }
 
 + (UIImage *)imageNamed:(NSString *)name configuration:(UIImageSymbolConfiguration *)config {

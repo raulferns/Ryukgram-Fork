@@ -519,28 +519,67 @@ static SCICPatchStrategy SCICPatchStrategyFromRuntime(SCICRuntimePatchStrategy s
     [self refreshNow];
 }
 
+- (NSString *)promptMessageForTypedPlan:(SCICRuntimePatchPlan *)plan kind:(NSString *)kind {
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    [lines addObject:plan.symbol ?: @""];
+    [lines addObject:[NSString stringWithFormat:@"Type: %@", kind.length ? kind : @"typed"]];
+    if (plan.consumerSymbol.length) [lines addObject:[NSString stringWithFormat:@"Consumer: %@", plan.consumerSymbol]];
+    if (plan.callerSymbol.length) [lines addObject:[NSString stringWithFormat:@"Caller: %@", plan.callerSymbol]];
+    id native = [SCICRuntimePatchResolver currentNativeValueForPlan:plan];
+    id forced = [SCICRuntimePatchResolver currentForcedValueForPlan:plan];
+    NSUInteger hits = [SCICRuntimePatchResolver hitCountForPlan:plan];
+    [lines addObject:[NSString stringWithFormat:@"Observed native: %@", native ? [native description] : @"none yet"]];
+    [lines addObject:[NSString stringWithFormat:@"Current override: %@", forced ? [forced description] : @"none"]];
+    [lines addObject:[NSString stringWithFormat:@"Hits: %lu", (unsigned long)hits]];
+    if (!native && hits == 0) {
+        [lines addObject:@"No observed value yet. Use Observe first, navigate the app path that reads this symbol, then return here. The observed native value becomes the safest starting point."];
+    } else {
+        [lines addObject:@"Defaulting to the last observed/forced value. Edit only if you know the expected server/client enum or numeric range."];
+    }
+    [lines addObject:plan.reason ?: @""];
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+- (id)typedValueFromText:(NSString *)text kind:(NSString *)kind {
+    NSString *t = text ?: @"";
+    if ([kind isEqualToString:@"int64"]) return @([t longLongValue]);
+    if ([kind isEqualToString:@"double"]) return @([t doubleValue]);
+    return t;
+}
+
 - (void)promptTypedApply {
-    NSString *n = self.entry.name ?: @"";
-    NSString *kind = [SCICSymbolStub returnKindForSymbol:n] ?: @"int64";
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"Force %@", kind] message:n preferredStyle:UIAlertControllerStyleAlert];
-    NSString *ph = [kind isEqualToString:@"double"] ? @"1.0" : ([kind isEqualToString:@"string"] ? @"forced" : @"1");
+    SCICRuntimePatchPlan *plan = [self currentRuntimePlan];
+    NSString *n = plan.symbol ?: (self.entry.name ?: @"");
+    NSString *kind = plan.returnKind ?: [SCICSymbolStub returnKindForSymbol:n] ?: @"int64";
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"Force %@", kind]
+                                                                 message:[self promptMessageForTypedPlan:plan kind:kind]
+                                                          preferredStyle:UIAlertControllerStyleAlert];
+    NSString *ph = [kind isEqualToString:@"double"] ? @"Use observed value, e.g. 1.0" : ([kind isEqualToString:@"string"] ? @"Use exact observed/known string" : @"Use observed enum/int64, e.g. 0 or 1");
     [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
         tf.placeholder = ph;
-        NSDictionary *cur = [SCICSymbolStub typedForceForSymbol:n];
-        id v = cur[@"value"]; tf.text = v ? [v description] : ph;
+        id forced = [SCICRuntimePatchResolver currentForcedValueForPlan:plan];
+        id native = [SCICRuntimePatchResolver currentNativeValueForPlan:plan];
+        id v = forced ?: native;
+        tf.text = v ? [v description] : @"";
+        tf.clearButtonMode = UITextFieldViewModeWhileEditing;
         if ([kind isEqualToString:@"int64"] || [kind isEqualToString:@"double"]) tf.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
     }];
     __weak typeof(self) ws = self;
     [a addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [a addAction:[UIAlertAction actionWithTitle:@"Apply" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *act) {
-        NSString *t = a.textFields.firstObject.text ?: @"";
-        id value = t;
-        if ([kind isEqualToString:@"int64"]) value = @([t longLongValue]);
-        else if ([kind isEqualToString:@"double"]) value = @([t doubleValue]);
+    [a addAction:[UIAlertAction actionWithTitle:@"Observe first" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *act) {
         __strong typeof(ws) ss = ws; if (!ss) return;
         NSError *error = nil;
-        SCICRuntimePatchPlan *plan = [ss currentRuntimePlan];
-        if (![SCICRuntimePatchResolver applyPlan:plan value:value error:&error]) { [ss showPatchError:error fallback:plan.reason]; return; }
+        if (![SCICRuntimePatchResolver applyPlan:plan value:nil error:&error]) [ss showPatchError:error fallback:plan.reason];
+        else [SCIUtils showToastForDuration:1.2 title:@"Observe installed" subtitle:@"Use the feature path, then reopen this row."];
+        [ss refreshNow];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"Apply manual value" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *act) {
+        NSString *t = a.textFields.firstObject.text ?: @"";
+        __strong typeof(ws) ss = ws; if (!ss) return;
+        NSError *error = nil;
+        id value = [ss typedValueFromText:t kind:kind];
+        SCICRuntimePatchPlan *fresh = [ss currentRuntimePlan];
+        if (![SCICRuntimePatchResolver applyPlan:fresh value:value error:&error]) { [ss showPatchError:error fallback:fresh.reason]; return; }
         [SCIUtils showToastForDuration:1.0 title:@"Typed force applied" subtitle:n];
         [ss refreshNow];
     }]];
@@ -550,7 +589,8 @@ static SCICPatchStrategy SCICPatchStrategyFromRuntime(SCICRuntimePatchStrategy s
 
 - (void)promptDataStringRebind {
     SCICRuntimePatchPlan *plan = [self currentRuntimePlan];
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Rebind DATA pointer" message:plan.symbol preferredStyle:UIAlertControllerStyleAlert];
+    NSString *msg = [NSString stringWithFormat:@"%@\nSection: %@\nConsumer: %@\nCurrent override: %@\n\nUse only an NSString/key-compatible replacement. If there is no consumer/xref yet, observe or resolve xrefs before rebinding.", plan.symbol ?: @"", plan.section ?: @"?", plan.consumerSymbol ?: @"unconfirmed", [SCICRuntimePatchResolver currentForcedValueForPlan:plan] ?: @"none"];
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Rebind DATA pointer" message:msg preferredStyle:UIAlertControllerStyleAlert];
     [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
         tf.placeholder = @"replacement NSString";
         id cur = [SCICRuntimePatchResolver currentForcedValueForPlan:plan];
@@ -571,7 +611,10 @@ static SCICPatchStrategy SCICPatchStrategyFromRuntime(SCICRuntimePatchStrategy s
 
 - (void)promptDataPatchBytes {
     SCICRuntimePatchPlan *plan = [self currentRuntimePlan];
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Patch DATA bytes" message:@"Hex bytes only. Snapshot is saved for revert." preferredStyle:UIAlertControllerStyleAlert];
+    NSUInteger n = plan.dataSize ? MIN((NSUInteger)16, plan.dataSize) : 16;
+    NSString *currentHex = [SCICRuntimePatchResolver hexStringFromData:SCICBytesAtAddress(plan.runtimeAddress ?: self.resolvedAddr, n)] ?: @"";
+    NSString *msg = [NSString stringWithFormat:@"%@\nSection: %@\nKnown size: %lu bytes\nCurrent first %lu bytes: %@\n\nHex bytes only. Snapshot is saved for revert. Do not patch unknown schema/NSString/layout bytes blindly.", plan.symbol ?: @"", plan.section ?: @"?", (unsigned long)plan.dataSize, (unsigned long)n, currentHex.length ? currentHex : @"unavailable"];
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Patch DATA bytes" message:msg preferredStyle:UIAlertControllerStyleAlert];
     [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
         tf.placeholder = @"01 or 0000000000000001";
         id cur = [SCICRuntimePatchResolver currentForcedValueForPlan:plan];
@@ -686,7 +729,7 @@ static SCICPatchStrategy SCICPatchStrategyFromRuntime(SCICRuntimePatchStrategy s
         return cell;
     }
     if (ip.section == 2) {
-        if (self.scanState == 0) { cell.selectionStyle = UITableViewCellSelectionStyleDefault; cell.textLabel.textColor = self.view.tintColor; cell.textLabel.text = @"Resolve consumers (xref scan)"; cell.detailTextLabel.text = @"Bounded, read-only scan of the defining image's __text."; return cell; }
+        if (self.scanState == 0) { cell.selectionStyle = UITableViewCellSelectionStyleDefault; cell.textLabel.textColor = self.view.tintColor; cell.textLabel.text = @"Resolve consumers (xref scan)"; cell.detailTextLabel.text = @"Bounded, read-only scan of Instagram + FBShared __TEXT,__text for callers/consumers."; return cell; }
         if (self.scanState == 1) { cell.textLabel.text = @"Scanning…"; cell.detailTextLabel.text = @"Scanning Instagram + FBShared for direct BL callers, GOT loads, ADR/ADRP/ADD/LDR consumers and BLR indirect calls."; return cell; }
         if (self.xrefHits.count == 0) { cell.textLabel.text = @"No consumer resolved"; cell.detailTextLabel.text = self.scanHitBudget ? @"Budget reached before a hit. Tap to rescan." : @"No direct BL/GOT/ADR consumer found in Instagram/FBShared. Use live capture if the path is lazy, Swift-dispatched or generated."; cell.selectionStyle = UITableViewCellSelectionStyleDefault; return cell; }
         if (self.scanHitBudget && ip.row == (NSInteger)self.xrefHits.count) { cell.textLabel.text = @"⚠ budget reached"; cell.detailTextLabel.text = @"More consumers may exist beyond the scan budget."; return cell; }
@@ -1147,29 +1190,39 @@ static char kSCICSymbolGroupPayloadKey;
 - (void)promptTypedForceForEntry:(SCICSymbolEntry *)entry {
     NSString *kind = [SCICSymbolStub returnKindForSymbol:entry.name] ?: @"unknown";
     if (![SCICSymbolStub isTypedForceableSymbol:entry.name]) return;
+    SCICRuntimePatchPlan *plan = [self resolverPlanForEntry:entry];
+    id native = [SCICRuntimePatchResolver currentNativeValueForPlan:plan];
+    id forced = [SCICRuntimePatchResolver currentForcedValueForPlan:plan];
+    NSString *msg = [NSString stringWithFormat:@"%@\nType: %@\nObserved native: %@\nCurrent override: %@\nHits: %lu\n\nUse Observe first if native is unknown. Manual values should come from an observed native value, a known enum/id, or a confirmed caller/xref.", entry.name ?: @"", kind, native ?: @"none yet", forced ?: @"none", (unsigned long)[SCICRuntimePatchResolver hitCountForPlan:plan]];
     UIAlertController *a = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"Force %@", kind]
-                                                                 message:entry.name
+                                                                 message:msg
                                                           preferredStyle:UIAlertControllerStyleAlert];
-    NSString *placeholder = [kind isEqualToString:@"double"] ? @"1.0" : ([kind isEqualToString:@"string"] ? @"forced" : @"1");
+    NSString *placeholder = [kind isEqualToString:@"double"] ? @"observed double" : ([kind isEqualToString:@"string"] ? @"observed/known string" : @"observed int64/enum");
     [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
         tf.placeholder = placeholder;
-        NSDictionary *cur = [SCICSymbolStub typedForceForSymbol:entry.name];
-        id v = cur[@"value"];
-        tf.text = v ? [v description] : placeholder;
+        id v = forced ?: native;
+        tf.text = v ? [v description] : @"";
         tf.clearButtonMode = UITextFieldViewModeWhileEditing;
         if ([kind isEqualToString:@"int64"] || [kind isEqualToString:@"double"]) tf.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
     }];
     __weak typeof(self) weakSelf = self;
     [a addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [a addAction:[UIAlertAction actionWithTitle:@"Apply" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *act) {
+    [a addAction:[UIAlertAction actionWithTitle:@"Observe first" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *act) {
+        NSError *error = nil;
+        SCICRuntimePatchPlan *p = [weakSelf resolverPlanForEntry:entry];
+        if (![SCICRuntimePatchResolver applyPlan:p value:nil error:&error]) [SCIUtils showToastForDuration:1.2 title:@"Observe failed" subtitle:error.localizedDescription ?: p.reason];
+        else [SCIUtils showToastForDuration:1.2 title:@"Observe installed" subtitle:@"Use the feature path, then reopen this row."];
+        [weakSelf rebuildSections];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"Apply manual value" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *act) {
         NSString *text = a.textFields.firstObject.text ?: @"";
         id value = text;
         if ([kind isEqualToString:@"int64"]) value = @([text longLongValue]);
         else if ([kind isEqualToString:@"double"]) value = @([text doubleValue]);
         NSError *error = nil;
-        SCICRuntimePatchPlan *plan = [weakSelf resolverPlanForEntry:entry];
-        if (![SCICRuntimePatchResolver applyPlan:plan value:value error:&error]) {
-            [SCIUtils showToastForDuration:1.2 title:@"Patch failed" subtitle:error.localizedDescription ?: plan.reason];
+        SCICRuntimePatchPlan *p = [weakSelf resolverPlanForEntry:entry];
+        if (![SCICRuntimePatchResolver applyPlan:p value:value error:&error]) {
+            [SCIUtils showToastForDuration:1.2 title:@"Patch failed" subtitle:error.localizedDescription ?: p.reason];
             return;
         }
         [weakSelf rebuildSections];

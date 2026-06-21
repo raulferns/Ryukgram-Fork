@@ -43,6 +43,69 @@ static void sciSaveCachedRelease(NSDictionary *json) {
 	if (data) [data writeToFile:sciCachedReleasePath(tag) atomically:YES];
 }
 
+static NSDictionary *sciLoadLocalNotesRelease(void) {
+	NSBundle *bundle = SCILocalizationBundle();
+	NSString *path = bundle ? [bundle pathForResource:@"NOTES" ofType:@"md"] : nil;
+	NSString *body = path.length ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] : nil;
+	if (!body.length) return nil;
+	return @{
+		@"tag_name": @"NOTES.md",
+		@"name": @"NOTES.md",
+		@"body": body,
+		@"published_at": @"bundled"
+	};
+}
+
+// MARK: - Liquid Glass notes surface
+
+static UIColor *sciNotesFallbackSurfaceColor(void) {
+	return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+		return tc.userInterfaceStyle == UIUserInterfaceStyleDark
+			? UIColor.systemBackgroundColor
+			: UIColor.systemGroupedBackgroundColor;
+	}];
+}
+
+static void sciClearLayerBackground(UIView *view) {
+	if (!view) return;
+	view.opaque = NO;
+	view.backgroundColor = UIColor.clearColor;
+	view.layer.backgroundColor = UIColor.clearColor.CGColor;
+}
+
+static void sciConfigureNotesRootView(UIViewController *vc) {
+	if (!vc || !vc.isViewLoaded) return;
+
+	// The presented sheet already owns the Liquid Glass backdrop. Keep this
+	// content view transparent so the system glass can refract the app behind it;
+	// do not paint a dark/grouped rectangle over the presentation.
+	SCIUIKit26ApplyContainerBackgroundToViewController(vc);
+	SCIConfigureNavigationChromeForGlass(vc);
+	if (SCIUIKit26IsAvailable()) {
+		sciClearLayerBackground(vc.view);
+	} else {
+		vc.view.opaque = YES;
+		vc.view.backgroundColor = sciNotesFallbackSurfaceColor();
+		vc.view.layer.backgroundColor = [sciNotesFallbackSurfaceColor() resolvedColorWithTraitCollection:vc.view.traitCollection].CGColor;
+	}
+}
+
+static void sciConfigureNotesTextView(UITextView *tv) {
+	if (!tv) return;
+	tv.editable = NO;
+	tv.selectable = YES;
+	tv.scrollEnabled = YES;
+	tv.alwaysBounceVertical = YES;
+	tv.bounces = YES;
+	tv.showsVerticalScrollIndicator = YES;
+	tv.backgroundColor = UIColor.clearColor;
+	tv.opaque = NO;
+	tv.textContainer.lineFragmentPadding = 0.0;
+	tv.adjustsFontForContentSizeCategory = YES;
+	tv.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+	SCIUIKit26ConfigureScrollView(tv);
+}
+
 // MARK: - Network
 
 static void sciFetchJSON(NSString *url, void (^completion)(id json)) {
@@ -121,18 +184,22 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 	NSMutableAttributedString *out = [NSMutableAttributedString new];
 	if (!md.length) return out;
 
-	UIFont *body = [UIFont systemFontOfSize:15];
-	UIFont *h2 = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
-	UIFont *h3 = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+	UIFontMetrics *bodyMetrics = [UIFontMetrics metricsForTextStyle:UIFontTextStyleBody];
+	UIFontMetrics *headlineMetrics = [UIFontMetrics metricsForTextStyle:UIFontTextStyleHeadline];
+	UIFont *body = [bodyMetrics scaledFontForFont:[UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular]];
+	UIFont *h2 = [headlineMetrics scaledFontForFont:[UIFont systemFontOfSize:20.0 weight:UIFontWeightBold]];
+	UIFont *h3 = [headlineMetrics scaledFontForFont:[UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold]];
 
 	NSMutableParagraphStyle *bodyPS = [NSMutableParagraphStyle new];
-	bodyPS.lineSpacing = 2;
-	bodyPS.paragraphSpacing = 3;
+	bodyPS.lineSpacing = 3;
+	bodyPS.paragraphSpacing = 5;
+	bodyPS.lineBreakMode = NSLineBreakByWordWrapping;
 
 	NSMutableParagraphStyle *headPS = [NSMutableParagraphStyle new];
 	headPS.lineSpacing = 2;
-	headPS.paragraphSpacing = 4;
-	headPS.paragraphSpacingBefore = 10;
+	headPS.paragraphSpacing = 7;
+	headPS.paragraphSpacingBefore = 14;
+	headPS.lineBreakMode = NSLineBreakByWordWrapping;
 
 	BOOL emitted = NO;
 
@@ -184,10 +251,9 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 
 - (void)viewDidLoad {
 	[super viewDidLoad];
-	SCIUIKit26ConfigureViewController(self);
+	sciConfigureNotesRootView(self);
 
 	self.title = SCILocalized(@"What's new in RyukGram");
-	self.view.backgroundColor = SCIUIKit26BaseSurfaceColor();
 	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
 
 	NSString *name = self.releaseJSON[@"name"] ?: self.releaseJSON[@"tag_name"] ?: @"?";
@@ -196,25 +262,36 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 	NSString *header = url.length ? [NSString stringWithFormat:@"## [%@](%@)\n", name, url] : [NSString stringWithFormat:@"## %@\n", name];
 
 	UITextView *tv = [UITextView new];
-	tv.editable = NO;
-	tv.selectable = YES;
-	tv.scrollEnabled = YES;
-	tv.alwaysBounceVertical = YES;
-	tv.bounces = YES;
-	tv.showsVerticalScrollIndicator = YES;
-	tv.backgroundColor = UIColor.clearColor;
-	SCIUIKit26ConfigureScrollView(tv);
-	tv.textContainerInset = UIEdgeInsetsMake(16, 16, 24, 16);
+	sciConfigureNotesTextView(tv);
+	tv.textContainerInset = UIEdgeInsetsMake(18, 22, 26, 22);
 	tv.translatesAutoresizingMaskIntoConstraints = NO;
 	tv.attributedText = sciRenderMarkdown([header stringByAppendingString:body]);
 	[self.view addSubview:tv];
 
+	UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+	UILayoutGuide *readable = self.view.readableContentGuide;
+	NSLayoutConstraint *maxWidth = [tv.widthAnchor constraintLessThanOrEqualToConstant:760.0];
+	maxWidth.priority = UILayoutPriorityRequired;
+
 	[NSLayoutConstraint activateConstraints:@[
-		[tv.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
-		[tv.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-		[tv.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+		[tv.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8.0],
+		[tv.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.view.leadingAnchor constant:8.0],
+		[tv.trailingAnchor constraintLessThanOrEqualToAnchor:self.view.trailingAnchor constant:-8.0],
+		[tv.leadingAnchor constraintGreaterThanOrEqualToAnchor:readable.leadingAnchor constant:-16.0],
+		[tv.trailingAnchor constraintLessThanOrEqualToAnchor:readable.trailingAnchor constant:16.0],
 		[tv.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+		maxWidth,
+		[tv.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
 	]];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+	[super traitCollectionDidChange:previousTraitCollection];
+	if (SCIUIKit26IsAvailable()) sciClearLayerBackground(self.view);
+	else {
+		self.view.backgroundColor = sciNotesFallbackSurfaceColor();
+		self.view.layer.backgroundColor = [sciNotesFallbackSurfaceColor() resolvedColorWithTraitCollection:self.view.traitCollection].CGColor;
+	}
 }
 
 - (void)done {
@@ -225,10 +302,32 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 
 @end
 
+static void sciConfigureReleaseListCell(UITableViewCell *cell) {
+	if (!cell) return;
+	cell.backgroundColor = UIColor.clearColor;
+	cell.contentView.backgroundColor = UIColor.clearColor;
+	cell.opaque = NO;
+	cell.contentView.opaque = NO;
+	cell.preservesSuperviewLayoutMargins = YES;
+	cell.layoutMargins = UIEdgeInsetsMake(8, 22, 8, 18);
+
+	UIView *selected = [UIView new];
+	selected.backgroundColor = [UIColor.labelColor colorWithAlphaComponent:0.08];
+	cell.selectedBackgroundView = selected;
+
+	if (@available(iOS 14.0, *)) {
+		UIBackgroundConfiguration *bg = [UIBackgroundConfiguration clearConfiguration];
+		bg.backgroundColor = UIColor.clearColor;
+		bg.visualEffect = nil;
+		cell.backgroundConfiguration = bg;
+	}
+}
+
 // MARK: - Releases list view controller
 
 @interface _SCIReleaseListVC : UITableViewController
 @property (nonatomic, copy) NSArray<NSDictionary *> *releases;
+@property (nonatomic, copy) NSDictionary *localNotes;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @end
 
@@ -236,9 +335,18 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 
 - (void)viewDidLoad {
 	[super viewDidLoad];
+	self.localNotes = sciLoadLocalNotesRelease();
+	sciConfigureNotesRootView(self);
+	SCIUIKit26ConfigureTableView(self.tableView);
 
 	self.title = SCILocalized(@"Release notes");
-	self.tableView.rowHeight = 60;
+	self.tableView.rowHeight = UITableViewAutomaticDimension;
+	self.tableView.estimatedRowHeight = 58.0;
+	self.tableView.contentInset = UIEdgeInsetsMake(6, 0, 16, 0);
+	self.tableView.cellLayoutMarginsFollowReadableWidth = YES;
+	self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
+	self.tableView.separatorColor = SCIUIKit26SeparatorColor();
+	if (@available(iOS 15.0, *)) self.tableView.sectionHeaderTopPadding = 0.0;
 	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
 
 	self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
@@ -249,18 +357,28 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 	[self loadReleases];
 }
 
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+	[super traitCollectionDidChange:previousTraitCollection];
+	if (SCIUIKit26IsAvailable()) sciClearLayerBackground(self.view);
+	else {
+		self.view.backgroundColor = sciNotesFallbackSurfaceColor();
+		self.view.layer.backgroundColor = [sciNotesFallbackSurfaceColor() resolvedColorWithTraitCollection:self.view.traitCollection].CGColor;
+	}
+}
+
 - (void)loadReleases {
 	sciFetchReleaseList(^(NSArray<NSDictionary *> *arr) {
 		self.releases = arr ?: @[];
 		[self.spinner stopAnimating];
 		self.tableView.backgroundView = nil;
 
-		if (!self.releases.count) {
+		if (!self.releases.count && !self.localNotes) {
 			UILabel *empty = [UILabel new];
 			empty.text = SCILocalized(@"No releases");
 			empty.textAlignment = NSTextAlignmentCenter;
 			empty.textColor = UIColor.secondaryLabelColor;
-			empty.font = [UIFont systemFontOfSize:15];
+			empty.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody] scaledFontForFont:[UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular]];
+			empty.adjustsFontForContentSizeCategory = YES;
 			self.tableView.backgroundView = empty;
 		}
 
@@ -273,26 +391,41 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 }
 
 - (NSInteger)tableView:(__unused UITableView *)tv numberOfRowsInSection:(__unused NSInteger)section {
-	return self.releases.count;
+	return self.releases.count + (self.localNotes ? 1 : 0);
+}
+
+
+- (NSDictionary *)releaseForIndexPath:(NSIndexPath *)ip {
+	if (self.localNotes && ip.row == 0) return self.localNotes;
+	NSInteger idx = ip.row - (self.localNotes ? 1 : 0);
+	return (idx >= 0 && idx < (NSInteger)self.releases.count) ? self.releases[(NSUInteger)idx] : nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
 	UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"r"];
-	SCIUIKit26ConfigureTableCell(cell);
 	if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"r"];
+	sciConfigureReleaseListCell(cell);
 
-	NSDictionary *rel = self.releases[ip.row];
+	NSDictionary *rel = [self releaseForIndexPath:ip];
 	NSString *tag = rel[@"tag_name"] ?: @"";
 	NSString *title = rel[@"name"] ?: tag;
 
 	NSMutableArray *badges = [NSMutableArray new];
-	if (ip.row == 0) [badges addObject:SCILocalized(@"latest")];
+	if (!self.localNotes && ip.row == 0) [badges addObject:SCILocalized(@"latest")];
 	if ([tag isEqualToString:SCIVersionString]) [badges addObject:SCILocalized(@"installed")];
 	if (badges.count) title = [NSString stringWithFormat:@"%@  (%@)", title, [badges componentsJoinedByString:@", "]];
 
 	NSString *published = rel[@"published_at"];
 	cell.textLabel.text = title;
 	cell.detailTextLabel.text = published.length ? [published substringToIndex:MIN((NSUInteger)10, published.length)] : @"";
+	cell.textLabel.numberOfLines = 2;
+	cell.detailTextLabel.numberOfLines = 1;
+	cell.textLabel.textColor = UIColor.labelColor;
+	cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
+	cell.textLabel.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleSubheadline] scaledFontForFont:[UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold]];
+	cell.detailTextLabel.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleCaption1] scaledFontForFont:[UIFont systemFontOfSize:12.0 weight:UIFontWeightRegular]];
+	cell.textLabel.adjustsFontForContentSizeCategory = YES;
+	cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
 	cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
 	return cell;
 }
@@ -301,7 +434,7 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 	[tv deselectRowAtIndexPath:ip animated:YES];
 
 	_SCIChangelogDetailVC *vc = [_SCIChangelogDetailVC new];
-	vc.releaseJSON = self.releases[ip.row];
+	vc.releaseJSON = [self releaseForIndexPath:ip];
 	[self.navigationController pushViewController:vc animated:YES];
 }
 
@@ -320,6 +453,12 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 + (UINavigationController *)navWithRoot:(UIViewController *)root largeOnly:(BOOL)largeOnly {
 	UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:root];
 	nav.modalPresentationStyle = UIModalPresentationPageSheet;
+	SCIUIKit26ApplyContainerBackgroundToViewController(nav);
+	SCIConfigureNavigationChromeForGlass(root);
+	if (SCIUIKit26IsAvailable()) {
+		sciClearLayerBackground(nav.view);
+		sciClearLayerBackground(root.view);
+	}
 
 	if (@available(iOS 15.0, *)) {
 		UISheetPresentationController *sheet = nav.sheetPresentationController;
@@ -367,7 +506,7 @@ static NSAttributedString *sciRenderMarkdown(NSString *md) {
 
 	NSDictionary *cached = sciLoadCachedRelease(SCIVersionString);
 	if (cached) show(cached);
-	else sciFetchRelease(SCIVersionString, show);
+	else sciFetchRelease(SCIVersionString, ^(NSDictionary *json) { show(json ?: sciLoadLocalNotesRelease()); });
 }
 
 + (void)presentAllFromViewController:(UIViewController *)host {

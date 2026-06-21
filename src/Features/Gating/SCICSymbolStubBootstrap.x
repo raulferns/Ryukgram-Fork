@@ -6,6 +6,7 @@
 // and revalidates the backend before installing anything.
 #import "../../Utils.h"
 #import "SCICRuntimePatchResolver.h"
+#import "../Dogfooding/SCIInternalGatePrefs.h"
 
 %ctor {
     @autoreleasepool {
@@ -16,6 +17,7 @@
             }
             return;
         }
+        [SCIInternalGatePrefs installCrashGuardIfNeeded];
         [SCICRuntimePatchResolver reinstallSafePersistedPatchPlansAtLaunch];
         if ([SCIUtils getBoolPref:@"sci_csym_stub_install_at_launch"]) {
             [SCIUtils setPref:@NO forKey:@"sci_csym_stub_install_at_launch"];

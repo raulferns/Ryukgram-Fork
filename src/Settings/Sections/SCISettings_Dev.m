@@ -19,6 +19,7 @@
 #import "../../Features/Dogfooding/SCIInternalMenusLauncher.h"
 #import "../../Features/Dogfooding/SCIInternalGatePrefs.h"
 
+
 @implementation SCITweakSettings (Section_Dev)
 
 + (SCISetting *)devNavCell {
@@ -71,32 +72,6 @@
 										},
 
 										@{
-											@"header": SCILocalized(@"IGPlus / Consumer Subs"),
-											@"footer": SCILocalized(@"Client-side IGPlus benefit getters and eligibility helpers validated in the Instagram executable. Hooks install from persisted prefs; first enable from an all-off launch requires restart."),
-											@"rows": @[
-												[SCISetting switchCellWithTitle:SCILocalized(@"★ Force all IGPlus benefits") subtitle:SCILocalized(@"Master for all IGConsumerSubsService benefit getters and lower-level eligibility helpers") defaultsKey:@"sci_force_igplus_all" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"IGPlus eligibility/data-provider") subtitle:SCILocalized(@"SUBSBenefitDataProvider + peek/chat/custom app icon eligibility") defaultsKey:@"sci_igplus_eligibility" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"IGPlus access") subtitle:SCILocalized(@"hasAccessToIGPlus") defaultsKey:@"sci_igplus_has_access" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Any active benefit") subtitle:SCILocalized(@"hasAnyActiveBenefit / isBenefitActive:") defaultsKey:@"sci_igplus_any_active" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Custom Lists") subtitle:@"" defaultsKey:@"sci_igplus_custom_lists" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Story Superlikes") subtitle:@"" defaultsKey:@"sci_igplus_story_superlikes" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Search Story Viewers") subtitle:@"" defaultsKey:@"sci_igplus_search_story_viewers" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Story Extend") subtitle:@"" defaultsKey:@"sci_igplus_story_extend" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Story Rewatch") subtitle:@"" defaultsKey:@"sci_igplus_story_rewatch" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Story Peeks") subtitle:@"" defaultsKey:@"sci_igplus_story_peeks" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Story Spotlight") subtitle:@"" defaultsKey:@"sci_igplus_story_spotlight" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Silent Post to Highlights") subtitle:@"" defaultsKey:@"sci_igplus_silent_post_highlights" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Direct Message Peek") subtitle:@"" defaultsKey:@"sci_igplus_dm_peek" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Custom App Icon") subtitle:@"" defaultsKey:@"sci_igplus_custom_app_icon" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Branded Threads") subtitle:@"" defaultsKey:@"sci_igplus_branded_threads" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Timestamp Viewers List") subtitle:@"" defaultsKey:@"sci_igplus_timestamp_viewers" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Custom Bio Font") subtitle:@"" defaultsKey:@"sci_igplus_custom_bio_font" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Silent Post to Profile") subtitle:@"" defaultsKey:@"sci_igplus_silent_post_profile" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Pinned Posts Increased Limit") subtitle:@"" defaultsKey:@"sci_igplus_pinned_posts_limit" requiresRestart:YES],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Story Peek Active") subtitle:SCILocalized(@"IGConsumerSubsStoryPeekCoordinator.isPeekActive") defaultsKey:@"sci_igplus_story_peek_active" requiresRestart:YES],
-											]
-										},
-										@{
 											@"header": SCILocalized(@"XPlugins"),
 											@"footer": SCILocalized(@"XPlugins fica documentado, mas o hook direto não é compilado neste patch porque toca exatamente o caminho do watchdog visto no crash. Reative só isoladamente, em arquivo separado e nunca no launch."),
 											@"rows": @[
@@ -113,14 +88,11 @@
 													   subtitle:SCILocalized(@"Restores gates auto-disabled after a crash. Tap after enabling toggles that were reset.")
 													       icon:[SCISymbol symbolWithName:@"arrow.counterclockwise.circle"]
 													     action:^(void) {
-														NSUserDefaults *ud = NSUserDefaults.standardUserDefaults;
-														NSArray *d = [ud arrayForKey:@"sci_internal_gate_crash_disabled_keys"] ?: @[];
-														for (NSString *key in d) [ud setBool:YES forKey:key];
-														[ud removeObjectForKey:@"sci_internal_gate_crash_pending_keys"];
-														[ud removeObjectForKey:@"sci_internal_gate_crash_disabled_keys"];
-														[ud removeObjectForKey:@"sci_internal_gate_crash_last_source"];
-														NSString *msg = d.count ? [NSString stringWithFormat:@"Restored %lu gate(s):\n%@",(unsigned long)d.count,[d componentsJoinedByString:@"\n"]] : @"No disabled gates. Guard cleared.";
-														UIWindow *w=nil; for(UIScene *sc in UIApplication.sharedApplication.connectedScenes){if([sc isKindOfClass:UIWindowScene.class])for(UIWindow *win in((UIWindowScene*)sc).windows)if(win.isKeyWindow){w=win;break;}if(w)break;}
+														NSArray *d = [NSUserDefaults.standardUserDefaults arrayForKey:@"sci_internal_gate_crash_disabled_keys"] ?: @[];
+												NSDictionary *plans = [NSUserDefaults.standardUserDefaults dictionaryForKey:@"sci_internal_gate_crash_disabled_runtime_plans"] ?: @{};
+												[SCIInternalGatePrefs resetCrashGuardAndRestoreKeys];
+												NSString *msg = (d.count || plans.count) ? [NSString stringWithFormat:@"Restored %lu gate(s) and %lu runtime patch plan(s):\n%@",(unsigned long)d.count,(unsigned long)plans.count,[d componentsJoinedByString:@"\n"]] : @"No disabled gates or runtime plans. Guard cleared.";
+												UIWindow *w=nil; for(UIScene *sc in UIApplication.sharedApplication.connectedScenes){if([sc isKindOfClass:UIWindowScene.class])for(UIWindow *win in((UIWindowScene*)sc).windows)if(win.isKeyWindow){w=win;break;}if(w)break;}
 														UIViewController *top=w.rootViewController; while(top.presentedViewController)top=top.presentedViewController;
 														UIAlertController *a=[UIAlertController alertControllerWithTitle:@"Crash guard reset" message:msg preferredStyle:UIAlertControllerStyleAlert];
 														[a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
@@ -187,13 +159,9 @@
 											@"footer": SCILocalized(@"Browses classes in the selected loaded image. Search scans the full cached class index and BOOL getter names; no 80-row cap."),
 											@"rows": @[
 												[SCISetting navigationCellWithTitle:SCILocalized(@"Unified Runtime Browser")
-			   subtitle:SCILocalized(@"Instagram exec + FBShared in one screen. Classes grouped (IG·/FB· headers) with BOOL getters; each switch shows the LIVE value and forces it (persisted, re-applied at launch). Long-press for Force OFF / Undo.")
-			       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"square.grid.2x2"]
-			viewController:[[SCISymbolBrowserViewController alloc] initUnified]],
-												[SCISetting navigationCellWithTitle:SCILocalized(@"C / DATA / ABI Browser (experimental)")
-			   subtitle:SCILocalized(@"C functions, DATA/param descriptors and Swift symbols with ABI-aware fishhook actions. Experimental; fragile vs the ObjC browser above.")
-			       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"square.grid.2x2"]
-			viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeCFunctions]],
+							   subtitle:SCILocalized(@"Exec + FBShared in one Liquid Glass browser. Tabs: image scope and ObjC/C/DATA/Swift, with safe ABI-aware actions.")
+							       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"square.grid.2x2"]
+							viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeObjCMethods]],
 											]
 										},
 										@{
@@ -202,17 +170,29 @@
 											@"rows": @[
 												[self experimentalEntryCell],
 
-							[SCISetting switchCellWithTitle:SCILocalized(@"Status Bar Old School")
-										   subtitle:@""
-									defaultsKey:@"sci_statusbar_oldschool"
-								requiresRestart:NO],
-							[SCISetting switchCellWithTitle:SCILocalized(@"Story Tray")
-										   subtitle:@""
-									defaultsKey:@"sci_story_tray"
-								requiresRestart:NO],
-							[SCISetting menuCellWithTitle:SCILocalized(@"Instagram wordmark")
+							({
+								SCISetting *s = [SCISetting switchCellWithTitle:SCILocalized(@"Status Bar Old School")
+																  subtitle:@""
+															defaultsKey:@"sci_statusbar_oldschool"
+														requiresRestart:NO];
+								s.icon = [SCISymbol symbolWithName:@"statusbar_oldschool" color:UIColor.labelColor];
+								s;
+							}),
+							({
+								SCISetting *s = [SCISetting switchCellWithTitle:SCILocalized(@"Stories Tray")
+																  subtitle:@""
+															defaultsKey:@"sci_story_tray"
+														requiresRestart:NO];
+								s.icon = [SCISymbol symbolWithName:@"story_tray" color:UIColor.labelColor];
+								s;
+							}),
+							({
+								SCISetting *s = [SCISetting menuCellWithTitle:SCILocalized(@"Custom Feed Header")
 						 subtitle:@""
-						     menu:[self menus][@"ig_wordmark_variant"]],
+						     menu:[self menus][@"ig_wordmark_variant"]];
+							s.icon = [SCISymbol symbolWithName:@"custom_feed_header" color:UIColor.labelColor];
+							s;
+							}),
 
 									[SCISetting navigationCellWithTitle:SCILocalized(@"IGDSLauncherConfig")
 							   subtitle:@""
