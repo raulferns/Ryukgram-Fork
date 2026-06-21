@@ -2,9 +2,9 @@ name: Build RyukGram tweak
 
 on:
   push:
-    branches: [experimental2]
+    branches: [internal]
   pull_request:
-    branches: [experimental2]
+    branches: [internal]
   workflow_dispatch:
 
 concurrency:
