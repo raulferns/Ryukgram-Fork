@@ -12,7 +12,7 @@ typedef NS_ENUM(NSInteger, SCICSymbolsBrowserMode) {
     SCICSymbolsBrowserModeSwiftDisassembly = 3,
 };
 
-@interface SCISymbolsBrowserViewController : SCIBaseSettingsListViewController <UISearchBarDelegate>
+@interface SCISymbolsBrowserViewController : SCIBaseSettingsListViewController <UISearchResultsUpdating>
 - (instancetype)initWithMode:(SCICSymbolsBrowserMode)mode;
 @end
 

@@ -117,7 +117,8 @@ copy_bundle_assets() {
 		-iname '*.png' -o \
 		-iname '*.jpg' -o \
 		-iname '*.jpeg' -o \
-		-iname '*.pdf' \
+		-iname '*.pdf' -o \
+		-iname '*.md' \
 	\) -exec cp {} "$dest/" \;
 }
 

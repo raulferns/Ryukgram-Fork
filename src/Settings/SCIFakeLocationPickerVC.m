@@ -155,10 +155,9 @@
 	self.searchController.searchResultsUpdater = self;
 	self.searchController.obscuresBackgroundDuringPresentation = YES;
 	self.searchController.searchBar.placeholder = SCILocalized(@"Search address or place");
-	SCIUIKit26ConfigureSearchBar(self.searchController.searchBar);
 
 	self.navigationItem.searchController = self.searchController;
-	self.navigationItem.hidesSearchBarWhenScrolling = NO;
+	SCIUIKit26ConfigureSearchNavigationItem(self.navigationItem);
 	self.definesPresentationContext = YES;
 }
 

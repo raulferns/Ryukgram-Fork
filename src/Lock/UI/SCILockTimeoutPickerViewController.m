@@ -35,7 +35,6 @@
 - (void)viewDidLoad {
 	[super viewDidLoad];
 	SCIUIKit26ConfigureViewController(self);
-	SCIUIKit26ConfigureTableView(self.tableView);
 
 	self.title = SCILocalized(@"Auto-relock after idle");
 	self.view.backgroundColor = SCIUIKit26BaseSurfaceColor();
@@ -43,8 +42,9 @@
 
 	self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
 	self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-	self.tableView.backgroundColor = self.view.backgroundColor;
-	self.tableView.contentInset = UIEdgeInsetsMake(-10.0, 0.0, 0.0, 0.0);
+	SCIUIKit26ConfigureTableView(self.tableView);
+	self.tableView.contentInset = UIEdgeInsetsZero;
+	self.tableView.scrollIndicatorInsets = UIEdgeInsetsZero;
 	self.tableView.estimatedRowHeight = 52.0;
 	self.tableView.rowHeight = UITableViewAutomaticDimension;
 	self.tableView.dataSource = self;

@@ -17,6 +17,11 @@ NS_ASSUME_NONNULL_BEGIN
                 forGroup:(NSString *)groupID
                     from:(nullable UIViewController *)presenter;
 
++ (void)presentLockedVC:(UIViewController *)contentVC
+                forGroup:(NSString *)groupID
+                    from:(nullable UIViewController *)presenter
+              sourceView:(nullable UIView *)sourceView;
+
 // Always prompts for the passcode regardless of session state. Used for
 // sensitive toggles (lock/unlock chat, change passcode).
 + (void)forceAuthWithTitle:(NSString *)title

@@ -32,7 +32,6 @@ static NSString *const SCIPrimaryAppIconKey = @"__primary__";
 - (void)viewDidLoad {
 	[super viewDidLoad];
 	SCIUIKit26ConfigureViewController(self);
-	SCIUIKit26ConfigureTableView(self.tableView);
 
 	self.title = SCILocalized(@"App Icon");
 	self.view.backgroundColor = SCIUIKit26BaseSurfaceColor();
@@ -54,11 +53,12 @@ static NSString *const SCIPrimaryAppIconKey = @"__primary__";
 - (void)setupTableView {
 	self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
 	self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-	self.tableView.backgroundColor = self.view.backgroundColor;
+	SCIUIKit26ConfigureTableView(self.tableView);
 	self.tableView.dataSource = self;
 	self.tableView.delegate = self;
 	self.tableView.rowHeight = 76.0;
-	self.tableView.contentInset = UIEdgeInsetsMake(-10.0, 0.0, 0.0, 0.0);
+	self.tableView.contentInset = UIEdgeInsetsZero;
+	self.tableView.scrollIndicatorInsets = UIEdgeInsetsZero;
 
 	[self.view addSubview:self.tableView];
 }

@@ -9,6 +9,7 @@
 #import <mach-o/loader.h>
 #import <mach-o/nlist.h>
 #import <objc/runtime.h>
+#import "../UI/SCIUIKit26LiquidGlass.h"
 
 @interface SCICSymbolEntry : NSObject
 @property (nonatomic, copy) NSString *name;
@@ -942,9 +943,8 @@ static char kSCICSymbolGroupPayloadKey;
     sc.searchResultsUpdater = self;
     sc.obscuresBackgroundDuringPresentation = NO;
     sc.searchBar.placeholder = @"Search symbols, ABI, section…";
-    SCIUIKit26ConfigureSearchBar(sc.searchBar);
     self.navigationItem.searchController = sc;
-    self.navigationItem.hidesSearchBarWhenScrolling = NO;
+    SCIUIKit26ConfigureSearchNavigationItem(self.navigationItem);
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(refreshRuntimeSymbols)];
     [self configureUnifiedTabs];
     _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];

@@ -9,7 +9,7 @@ static void (*orig_badgedNav_didMoveToWindow)(UIView *, SEL);
 
 static void sci_badgedNavSettingsLongPress(UIView *self, SEL _cmd, UILongPressGestureRecognizer *sender) {
     if (sender.state != UIGestureRecognizerStateBegan) return;
-    [SCIUtils showSettingsVC:[self window]];
+    [SCIUtils showSettingsVCFromSourceView:self];
 }
 
 static void new_badgedNav_didMoveToWindow(UIView *self, SEL _cmd) {
@@ -43,7 +43,7 @@ static void new_badgedNav_didMoveToWindow(UIView *self, SEL _cmd) {
 }
 %new - (void)handleLongPress:(UILongPressGestureRecognizer *)sender {
     if (sender.state != UIGestureRecognizerStateBegan) return;
-    [SCIUtils showSettingsVC:[self window]];
+    [SCIUtils showSettingsVCFromSourceView:self];
 }
 %end
 

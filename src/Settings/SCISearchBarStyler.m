@@ -32,6 +32,8 @@
 
 	UITextField *field = searchBar.searchTextField;
 	field.borderStyle = UITextBorderStyleRoundedRect;
+	field.background = nil;
+	field.disabledBackground = nil;
 	field.backgroundColor = nil;
 	field.layer.backgroundColor = nil;
 	field.layer.cornerRadius = 0.0;

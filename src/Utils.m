@@ -188,7 +188,16 @@ static void sciDismissAlertWindow(void) {
 + (void)showSettingsVC:(UIWindow *)window {
 	[SCILockGate presentLockedVC:[SCISettingsViewController new]
 	                    forGroup:SCILockGroupSettings
-	                        from:window.rootViewController];
+	                        from:window.rootViewController
+	                  sourceView:nil];
+}
+
++ (void)showSettingsVCFromSourceView:(UIView *)sourceView {
+	UIViewController *presenter = [self nearestViewControllerForView:sourceView] ?: sourceView.window.rootViewController;
+	[SCILockGate presentLockedVC:[SCISettingsViewController new]
+	                    forGroup:SCILockGroupSettings
+	                        from:presenter
+	                  sourceView:sourceView];
 }
 
 // Open settings at a named top-level entry. Entry becomes the nav root with

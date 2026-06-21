@@ -80,14 +80,17 @@ static NSString *const kSCIBaseCustomCell = @"SCIBaseCustomCell";
 	[super viewDidLoad];
 
 	SCIUIKit26ConfigureViewController(self);
+	SCIUIKit26InstallNavigationTitleBubble(self);
 
 	_tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
 	_tableView.dataSource = self;
 	_tableView.delegate = self;
 	SCIUIKit26ConfigureTableView(_tableView);
 	_tableView.rowHeight = UITableViewAutomaticDimension;
-	_tableView.estimatedRowHeight = 54;
-	_tableView.contentInset = UIEdgeInsetsMake(self.reduceTopInset ? -10.0 : 0.0, 0.0, 0.0, 0.0);
+	_tableView.estimatedRowHeight = 52.0;
+	_tableView.contentInset = UIEdgeInsetsZero;
+	_tableView.scrollIndicatorInsets = UIEdgeInsetsZero;
+	if (@available(iOS 11.0, *)) _tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAutomatic;
 	_tableView.translatesAutoresizingMaskIntoConstraints = NO;
 	[_tableView registerClass:UITableViewCell.class forCellReuseIdentifier:kSCIBaseCell];
 	[_tableView registerClass:UITableViewCell.class forCellReuseIdentifier:kSCIBaseCustomCell];
@@ -105,6 +108,12 @@ static NSString *const kSCIBaseCustomCell = @"SCIBaseCustomCell";
 
 - (void)reloadSettings {
 	[self.tableView reloadData];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+	[super viewWillAppear:animated];
+	SCIConfigureNavigationChromeForGlass(self);
+	SCIUIKit26RefreshNavigationTitleBubble(self);
 }
 
 #pragma mark - Helpers
@@ -136,8 +145,11 @@ static NSString *const kSCIBaseCustomCell = @"SCIBaseCustomCell";
 	cfg.text = row.dynamicTitle ? row.dynamicTitle() : row.title;
 	cfg.secondaryText = row.dynamicSubtitle ? row.dynamicSubtitle() : row.subtitle;
 	cfg.textProperties.color = row.titleColor ?: (row.style == SCIBaseSettingsRowStyleDestructive ? UIColor.systemRedColor : UIColor.labelColor);
+	cfg.textProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
 	cfg.secondaryTextProperties.color = UIColor.secondaryLabelColor;
-	cfg.textToSecondaryTextVerticalPadding = 4.5;
+	cfg.secondaryTextProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+	cfg.textToSecondaryTextVerticalPadding = 3.5;
+	cfg.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(10.0, 16.0, 10.0, 16.0);
 
 	if (row.icon) {
 		cfg.image = row.icon;

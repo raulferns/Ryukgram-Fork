@@ -46,7 +46,7 @@ copy_bundle_assets() {
     local SRC="src/BundleAssets"
     [ -d "$SRC" ] || return 0
     mkdir -p "$DEST"
-    find "$SRC" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.pdf' \) \
+    find "$SRC" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.pdf' -o -iname '*.md' \) \
         -exec cp {} "$DEST/" \;
 }
 

@@ -2,6 +2,7 @@
 #import "SCISearchBarStyler.h"
 #import "../Utils.h"
 #import "../Localization/SCILocalization.h"
+#import "../UI/SCIUIKit26LiquidGlass.h"
 
 @interface SCIBackupDetailVC () <UITableViewDataSource, UITableViewDelegate, UISearchResultsUpdating, UISearchControllerDelegate>
 @property (nonatomic, copy) NSArray<NSDictionary *> *allSections;
@@ -41,7 +42,7 @@
 	self.searchController.obscuresBackgroundDuringPresentation = NO;
 	self.searchController.searchBar.placeholder = SCILocalized(@"Search");
 	self.navigationItem.searchController = self.searchController;
-	self.navigationItem.hidesSearchBarWhenScrolling = NO;
+	SCIUIKit26ConfigureSearchNavigationItem(self.navigationItem);
 	self.definesPresentationContext = YES;
 }
 

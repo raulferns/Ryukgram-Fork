@@ -5,22 +5,22 @@ static UIImage *SCIOptionSheetBundleTemplateImage(NSString *name) {
 	if (![name isKindOfClass:NSString.class] || name.length == 0) return nil;
 	NSBundle *bundle = SCILocalizationBundle();
 	UIImage *img = bundle ? [UIImage imageNamed:name inBundle:bundle compatibleWithTraitCollection:nil] : nil;
+	if (!img) img = [UIImage imageNamed:name];
 	return img ? [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] : nil;
 }
 
-static UIImage *SCIOptionSheetTrimTransparentTemplateImage(UIImage *image) {
-	if (!image) return nil;
+static CGRect SCIOptionSheetAlphaBoundsForImage(UIImage *image) {
 	CGImageRef cg = image.CGImage;
-	if (!cg) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	if (!cg) return CGRectZero;
 	size_t width = CGImageGetWidth(cg);
 	size_t height = CGImageGetHeight(cg);
-	if (width == 0 || height == 0 || width > 4096 || height > 4096) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	if (width == 0 || height == 0 || width > 4096 || height > 4096) return CGRectZero;
 	size_t bytesPerRow = width * 4;
 	NSMutableData *data = [NSMutableData dataWithLength:bytesPerRow * height];
 	CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
 	CGContextRef ctx = CGBitmapContextCreate(data.mutableBytes, width, height, 8, bytesPerRow, colorSpace, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
 	if (colorSpace) CGColorSpaceRelease(colorSpace);
-	if (!ctx) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	if (!ctx) return CGRectZero;
 	CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), cg);
 	CGContextRelease(ctx);
 	const UInt8 *bytes = (const UInt8 *)data.bytes;
@@ -38,36 +38,33 @@ static UIImage *SCIOptionSheetTrimTransparentTemplateImage(UIImage *image) {
 			if (y > maxY) maxY = y;
 		}
 	}
-	if (!found) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-	CGFloat pad = 2.0 * MAX(image.scale, 1.0);
-	CGFloat originX = MAX(0.0, (CGFloat)minX - pad);
-	CGFloat originY = MAX(0.0, (CGFloat)minY - pad);
-	CGFloat endX = MIN((CGFloat)width, (CGFloat)maxX + 1.0 + pad);
-	CGFloat endY = MIN((CGFloat)height, (CGFloat)maxY + 1.0 + pad);
-	CGRect cropRect = CGRectMake(originX, originY, MAX(1.0, endX - originX), MAX(1.0, endY - originY));
-	if (CGRectEqualToRect(cropRect, CGRectMake(0, 0, width, height))) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-	CGImageRef cropped = CGImageCreateWithImageInRect(cg, cropRect);
-	if (!cropped) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-	UIImage *trimmed = [UIImage imageWithCGImage:cropped scale:image.scale orientation:image.imageOrientation];
-	CGImageRelease(cropped);
-	return [trimmed imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	if (!found) return CGRectZero;
+	return CGRectMake((CGFloat)minX, (CGFloat)minY, (CGFloat)(maxX - minX + 1), (CGFloat)(maxY - minY + 1));
 }
 
-
-
 static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
-	UIImage *trimmed = SCIOptionSheetTrimTransparentTemplateImage(image);
-	if (!trimmed) return nil;
+	if (!image) return nil;
+	CGRect box = SCIOptionSheetAlphaBoundsForImage(image);
+	CGImageRef cg = image.CGImage;
+	if (!cg || CGRectIsEmpty(box)) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	CGFloat pad = 1.0 * MAX(image.scale, 1.0);
+	CGRect cropRect = CGRectInset(box, -pad, -pad);
+	cropRect.origin.x = MAX(0.0, cropRect.origin.x);
+	cropRect.origin.y = MAX(0.0, cropRect.origin.y);
+	cropRect.size.width = MIN((CGFloat)CGImageGetWidth(cg) - cropRect.origin.x, cropRect.size.width);
+	cropRect.size.height = MIN((CGFloat)CGImageGetHeight(cg) - cropRect.origin.y, cropRect.size.height);
+	CGImageRef cropped = CGImageCreateWithImageInRect(cg, cropRect);
+	UIImage *trimmed = cropped ? [UIImage imageWithCGImage:cropped scale:image.scale orientation:image.imageOrientation] : image;
+	if (cropped) CGImageRelease(cropped);
 	CGSize source = trimmed.size;
-	if (source.width <= 0.0 || source.height <= 0.0) return trimmed;
-	static const CGFloat kPreviewWidth = 94.0;
-	static const CGFloat kPreviewMaxHeight = 23.0;
-	CGFloat scale = kPreviewWidth / source.width;
-	CGSize target = CGSizeMake(kPreviewWidth, ceil(source.height * scale));
-	if (target.height > kPreviewMaxHeight) {
-		scale = kPreviewMaxHeight / source.height;
-		target = CGSizeMake(ceil(source.width * scale), kPreviewMaxHeight);
-	}
+	if (source.width <= 0.0 || source.height <= 0.0) return [trimmed imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	// Match the visual size of the default wordmark instead of scaling every PNG
+	// to its own max height. This keeps the alternate marks from overpowering the row.
+	static const CGFloat kPreviewMaxWidth = 82.0;
+	static const CGFloat kPreviewMaxHeight = 22.0;
+	CGFloat scale = MIN(kPreviewMaxWidth / source.width, kPreviewMaxHeight / source.height);
+	if (scale <= 0.0) scale = 1.0;
+	CGSize target = CGSizeMake(ceil(source.width * scale), ceil(source.height * scale));
 	UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
 	fmt.opaque = NO;
 	fmt.scale = UIScreen.mainScreen.scale;
@@ -78,51 +75,30 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 	return [scaled imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 }
 
-static UIView *SCIOptionSheetSelectedGlassBackgroundView(CGFloat radius) {
-	SCIUIKit26GlassPanelView *bg = [[SCIUIKit26GlassPanelView alloc] initWithRadius:radius];
-	bg.sciGlassClearStyle = YES;
-	bg.sciGlassInteractive = YES;
-	bg.sciGlassTintColor = [UIColor.labelColor colorWithAlphaComponent:0.10];
-	[bg applyLiquidGlassStyle];
-	bg.contentView.backgroundColor = UIColor.clearColor;
-	bg.backgroundColor = UIColor.clearColor;
-	return bg;
-}
-
-static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
-	return MAX(minValue, MIN(value, maxValue));
-}
-
-@interface SCIOptionSheetVC : UIViewController <UITableViewDataSource, UITableViewDelegate>
+@interface SCIOptionSheetVC : UIViewController <UITableViewDataSource, UITableViewDelegate, UIPopoverPresentationControllerDelegate>
 @property (nonatomic, copy) NSArray<NSDictionary *> *options;
 @property (nonatomic, copy, nullable) NSString *defaultsKey;
 @property (nonatomic, copy) NSString *currentValue;
 @property (nonatomic, copy, nullable) void (^onChange)(NSString *);
 @property (nonatomic, copy, nullable) void (^onPickCommand)(UICommand *command);
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) SCIUIKit26GlassPanelView *panelView;
-@property (nonatomic, weak, nullable) UIView *sourceView;
-@property (nonatomic) CGPoint sourceCenter;
-@property (nonatomic) BOOL hasSourceCenter;
+@property (nonatomic, strong) UIVisualEffectView *effectView;
 @property (nonatomic) BOOL wordmarkMode;
+- (CGSize)preferredSheetSize;
 @end
-
 
 @implementation SCIOptionSheetVC
 
-- (CGFloat)rowHeight {
-	return self.wordmarkMode ? 34.0 : UITableViewAutomaticDimension;
-}
+- (CGFloat)rowHeightForWordmark { return 44.0; }
 
 - (CGFloat)estimatedHeightForOption:(NSDictionary *)opt {
-	if (self.wordmarkMode) return 34.0;
+	if (self.wordmarkMode) return [self rowHeightForWordmark];
 	NSString *title = opt[@"title"] ?: opt[@"value"] ?: @"";
 	NSString *desc = opt[@"description"] ?: @"";
-	CGFloat width = 328.0 - 16.0 - 16.0;
-	if (desc.length) width -= 42.0; // checkmark/accessory reserve
+	CGFloat width = 292.0;
 	CGRect titleRect = [title boundingRectWithSize:CGSizeMake(width, CGFLOAT_MAX)
 									 options:NSStringDrawingUsesLineFragmentOrigin
-								attributes:@{NSFontAttributeName:[UIFont systemFontOfSize:19.0 weight:UIFontWeightRegular]}
+								attributes:@{NSFontAttributeName:[UIFont preferredFontForTextStyle:UIFontTextStyleBody]}
 									 context:nil];
 	CGRect descRect = desc.length ? [desc boundingRectWithSize:CGSizeMake(width, CGFLOAT_MAX)
 									 options:NSStringDrawingUsesLineFragmentOrigin
@@ -132,103 +108,51 @@ static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
 	return MAX(58.0, MIN(h, 124.0));
 }
 
-- (CGSize)panelSize {
-	CGFloat width = self.wordmarkMode ? 142.0 : 328.0;
+- (CGSize)preferredSheetSize {
+	CGFloat width = self.wordmarkMode ? 260.0 : 328.0;
 	CGFloat rows = 0.0;
 	for (NSDictionary *opt in self.options) rows += [self estimatedHeightForOption:opt];
 	if (rows <= 0.0) rows = 72.0;
-	CGFloat maxHeight = MIN(UIScreen.mainScreen.bounds.size.height - 240.0, self.wordmarkMode ? 178.0 : 640.0);
-	CGFloat height = MIN(MAX(self.wordmarkMode ? 58.0 : 128.0, rows + 10.0), MAX(self.wordmarkMode ? 112.0 : 280.0, maxHeight));
+	CGFloat inset = self.wordmarkMode ? 12.0 : 16.0;
+	CGFloat maxHeight = MIN(UIScreen.mainScreen.bounds.size.height - 180.0, self.wordmarkMode ? 260.0 : 520.0);
+	CGFloat height = MIN(MAX(self.wordmarkMode ? 160.0 : 128.0, rows + inset), maxHeight);
 	return CGSizeMake(width, height);
 }
 
 - (void)viewDidLoad {
 	[super viewDidLoad];
-	SCIUIKit26ConfigureViewController(self);
 	self.view.backgroundColor = UIColor.clearColor;
+	self.view.opaque = NO;
+	SCIUIKit26ApplyContainerBackgroundToViewController(self);
+	self.preferredContentSize = [self preferredSheetSize];
 
-	self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+	self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
 	self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
 	self.tableView.dataSource = self;
 	self.tableView.delegate = self;
-	self.tableView.backgroundColor = UIColor.clearColor;
-	self.tableView.opaque = NO;
+	SCIUIKit26ConfigureTableView(self.tableView);
+	self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
 	self.tableView.separatorColor = SCIUIKit26SeparatorColor();
-	self.tableView.separatorInset = UIEdgeInsetsMake(0.0, self.wordmarkMode ? 14.0 : 18.0, 0.0, self.wordmarkMode ? 14.0 : 18.0);
-	self.tableView.rowHeight = [self rowHeight];
-	self.tableView.estimatedRowHeight = self.wordmarkMode ? 34.0 : 82.0;
-	self.tableView.alwaysBounceVertical = !self.wordmarkMode;
-	self.tableView.showsVerticalScrollIndicator = !self.wordmarkMode && self.options.count > 4;
-	self.tableView.backgroundColor = UIColor.clearColor;
-	self.tableView.opaque = NO;
-	if (self.wordmarkMode) {
-		self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
-		self.tableView.separatorColor = SCIUIKit26SeparatorColor();
-	}
+	self.tableView.separatorInset = UIEdgeInsetsMake(0.0, 16.0, 0.0, 16.0);
+	self.tableView.rowHeight = self.wordmarkMode ? [self rowHeightForWordmark] : UITableViewAutomaticDimension;
+	self.tableView.estimatedRowHeight = self.wordmarkMode ? [self rowHeightForWordmark] : 58.0;
+	self.tableView.alwaysBounceVertical = NO;
+	self.tableView.showsVerticalScrollIndicator = NO;
+	if (@available(iOS 11.0, *)) self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+	[self.view addSubview:self.tableView];
 
-	UIControl *dismissLayer = [UIControl new];
-	dismissLayer.translatesAutoresizingMaskIntoConstraints = NO;
-	dismissLayer.backgroundColor = UIColor.clearColor;
-	[dismissLayer addTarget:self action:@selector(dismissSelf) forControlEvents:UIControlEventTouchUpInside];
-	[self.view addSubview:dismissLayer];
-
-	self.panelView = [[SCIUIKit26GlassPanelView alloc] initWithRadius:24.0];
-	self.panelView.translatesAutoresizingMaskIntoConstraints = NO;
-	self.panelView.sciGlassClearStyle = YES;
-	self.panelView.sciGlassInteractive = YES;
-	[self.panelView applyLiquidGlassStyle];
-	[self.view addSubview:self.panelView];
-	[self.panelView.contentView addSubview:self.tableView];
-
-	CGSize size = [self panelSize];
 	[NSLayoutConstraint activateConstraints:@[
-		[dismissLayer.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-		[dismissLayer.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-		[dismissLayer.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-		[dismissLayer.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-
-		[self.panelView.centerXAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:[self panelCenterXForSize:size]],
-		[self.panelView.centerYAnchor constraintEqualToAnchor:self.view.topAnchor constant:[self panelCenterYForSize:size]],
-		[self.panelView.widthAnchor constraintEqualToConstant:size.width],
-		[self.panelView.heightAnchor constraintEqualToConstant:size.height],
-
-		[self.tableView.topAnchor constraintEqualToAnchor:self.panelView.contentView.topAnchor constant:(self.wordmarkMode ? 4.0 : 8.0)],
-		[self.tableView.leadingAnchor constraintEqualToAnchor:self.panelView.contentView.leadingAnchor constant:(self.wordmarkMode ? 4.0 : 8.0)],
-		[self.tableView.trailingAnchor constraintEqualToAnchor:self.panelView.contentView.trailingAnchor constant:-(self.wordmarkMode ? 4.0 : 8.0)],
-		[self.tableView.bottomAnchor constraintEqualToAnchor:self.panelView.contentView.bottomAnchor constant:-(self.wordmarkMode ? 4.0 : 8.0)],
+		[self.tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+		[self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+		[self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+		[self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
 	]];
 }
 
-
-- (CGPoint)sourceCenterInView {
-	if (self.hasSourceCenter) return self.sourceCenter;
-	return CGPointMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds));
-}
-
-- (CGFloat)panelCenterXForSize:(CGSize)size {
-	CGFloat safeLeft = self.view.safeAreaInsets.left + 18.0 + size.width * 0.5;
-	CGFloat safeRight = CGRectGetWidth(self.view.bounds) - self.view.safeAreaInsets.right - 18.0 - size.width * 0.5;
-	return SCIClamp([self sourceCenterInView].x, safeLeft, MAX(safeLeft, safeRight));
-}
-
-- (CGFloat)panelCenterYForSize:(CGSize)size {
-	CGFloat safeTop = self.view.safeAreaInsets.top + 18.0 + size.height * 0.5;
-	CGFloat safeBottom = CGRectGetHeight(self.view.bounds) - self.view.safeAreaInsets.bottom - 18.0 - size.height * 0.5;
-	CGFloat y = [self sourceCenterInView].y;
-	if (self.wordmarkMode) y += 2.0;
-	return SCIClamp(y, safeTop, MAX(safeTop, safeBottom));
-}
-
-- (void)dismissSelf { [self dismissViewControllerAnimated:YES completion:nil]; }
-
-- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
-	[super traitCollectionDidChange:previousTraitCollection];
-	if (self.wordmarkMode) [self.tableView reloadData];
-}
-
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)self.options.count; }
+
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-	return self.wordmarkMode ? 36.0 : [self estimatedHeightForOption:self.options[(NSUInteger)indexPath.row]];
+	return self.wordmarkMode ? [self rowHeightForWordmark] : [self estimatedHeightForOption:self.options[(NSUInteger)indexPath.row]];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -246,14 +170,10 @@ static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
 		UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"wordmarkOpt"];
 		if (!cell) {
 			cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"wordmarkOpt"];
-			cell.backgroundColor = UIColor.clearColor;
-			cell.contentView.backgroundColor = UIColor.clearColor;
-			cell.selectionStyle = UITableViewCellSelectionStyleNone;
-			cell.preservesSuperviewLayoutMargins = YES;
-			cell.contentView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(0.0, 8.0, 0.0, 8.0);
-			if (@available(iOS 14.0, *)) {
-				cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
-			}
+			SCIUIKit26ConfigureTableCell(cell);
+			cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+			cell.preservesSuperviewLayoutMargins = NO;
+			cell.contentView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(0.0, 6.0, 0.0, 6.0);
 
 			UIImageView *preview = [[UIImageView alloc] initWithFrame:CGRectZero];
 			preview.tag = 9001;
@@ -268,72 +188,59 @@ static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
 			check.tag = 9002;
 			check.translatesAutoresizingMaskIntoConstraints = NO;
 			check.contentMode = UIViewContentModeScaleAspectFit;
-			check.tintColor = UIColor.labelColor;
+			check.tintColor = [UIColor systemBlueColor];
 			[cell.contentView addSubview:check];
 
 			[NSLayoutConstraint activateConstraints:@[
-				[check.trailingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor constant:-1.0],
+				[check.trailingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor],
 				[check.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-				[check.widthAnchor constraintEqualToConstant:14.0],
-				[check.heightAnchor constraintEqualToConstant:14.0],
-
-				[preview.centerXAnchor constraintEqualToAnchor:cell.contentView.centerXAnchor constant:-7.0],
+				[check.widthAnchor constraintEqualToConstant:13.0],
+				[check.heightAnchor constraintEqualToConstant:13.0],
+				[preview.leadingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.leadingAnchor],
+				[preview.trailingAnchor constraintLessThanOrEqualToAnchor:check.leadingAnchor constant:-4.0],
 				[preview.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-				[preview.widthAnchor constraintEqualToConstant:96.0],
-				[preview.heightAnchor constraintEqualToConstant:24.0],
+				[preview.widthAnchor constraintEqualToConstant:82.0],
+				[preview.heightAnchor constraintEqualToConstant:22.0],
 			]];
 		}
-
 		cell.contentConfiguration = nil;
-		cell.backgroundColor = UIColor.clearColor;
-		cell.contentView.backgroundColor = UIColor.clearColor;
-		cell.tintColor = UIColor.labelColor;
-		cell.accessoryType = UITableViewCellAccessoryNone;
-		if (@available(iOS 14.0, *)) {
-			cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
-		}
-		cell.backgroundView = nil;
-		cell.selectedBackgroundView = SCIOptionSheetSelectedGlassBackgroundView(10.0);
+		SCIUIKit26ConfigureTableCell(cell);
 		UIImageView *preview = (UIImageView *)[cell.contentView viewWithTag:9001];
 		preview.image = SCIOptionSheetWordmarkPreviewImage(image);
 		preview.tintColor = UIColor.labelColor;
 		UIImageView *check = (UIImageView *)[cell.contentView viewWithTag:9002];
 		check.hidden = !selected;
-		check.tintColor = UIColor.labelColor;
+		SCIUIKit26ApplyTableCellSelectionTint(cell, selected);
 		return cell;
 	}
 
 	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"opt"];
 	if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"opt"];
-	if (@available(iOS 14.0, *)) cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
-	cell.backgroundView = nil;
-	cell.selectedBackgroundView = SCIOptionSheetSelectedGlassBackgroundView(14.0);
-
-	cell.backgroundColor = UIColor.clearColor;
-	cell.contentView.backgroundColor = UIColor.clearColor;
+	SCIUIKit26ConfigureTableCell(cell);
 	cell.tintColor = [UIColor systemBlueColor];
-	cell.selectionStyle = UITableViewCellSelectionStyleNone;
+	cell.selectionStyle = UITableViewCellSelectionStyleDefault;
 
 	UIListContentConfiguration *cfg = cell.defaultContentConfiguration;
 	cfg.text = opt[@"title"] ?: opt[@"value"];
 	cfg.textProperties.color = UIColor.labelColor;
-	cfg.textProperties.font = [UIFont systemFontOfSize:19.0 weight:UIFontWeightRegular];
-	cfg.textProperties.numberOfLines = 0;
+	cfg.textProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+	cfg.textProperties.numberOfLines = 1;
 	NSString *desc = opt[@"description"];
 	cfg.secondaryText = desc.length ? desc : nil;
 	cfg.secondaryTextProperties.color = UIColor.secondaryLabelColor;
-	cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
-	cfg.secondaryTextProperties.numberOfLines = 0;
+	cfg.secondaryTextProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+	cfg.secondaryTextProperties.numberOfLines = 2;
 	cfg.textToSecondaryTextVerticalPadding = 5.0;
-	cfg.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(10.0, 16.0, 10.0, 16.0);
+	cfg.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(9.0, 16.0, 9.0, 16.0);
 	if (image) {
 		cfg.image = [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 		cfg.imageProperties.tintColor = UIColor.labelColor;
-		cfg.imageProperties.maximumSize = CGSizeMake(32.0, 32.0);
+		cfg.imageProperties.maximumSize = CGSizeMake(23.0, 23.0);
 		cfg.imageToTextPadding = 14.0;
 	}
 	cell.contentConfiguration = cfg;
 	cell.accessoryType = selected ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+	SCIUIKit26ApplyTableCellSelectionTint(cell, selected);
 	return cell;
 }
 
@@ -352,15 +259,17 @@ static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
 	}
 	UIImpactFeedbackGenerator *fb = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
 	[fb impactOccurred];
-	[self dismissSelf];
+	[self dismissViewControllerAnimated:YES completion:nil];
 }
 
-@end
+- (UIModalPresentationStyle)adaptivePresentationStyleForPresentationController:(UIPresentationController *)controller {
+	return UIModalPresentationNone;
+}
 
+- (BOOL)popoverPresentationControllerShouldDismissPopover:(UIPopoverPresentationController *)popoverPresentationController {
+	return YES;
+}
 
-@interface SCIOptionSheet ()
-+ (void)presentSheetVC:(SCIOptionSheetVC *)vc from:(UIViewController *)presenter;
-+ (void)presentSheetVC:(SCIOptionSheetVC *)vc from:(UIViewController *)presenter sourceView:(UIView * _Nullable)sourceView;
 @end
 
 @implementation SCIOptionSheet
@@ -391,11 +300,8 @@ static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
 }
 
 + (BOOL)optionsAreWordmark:(NSArray<NSDictionary *> *)options fallbackKey:(NSString *)fallbackKey {
-	if ([fallbackKey isEqualToString:@"sci_ig_wordmark_variant"]) return YES;
-	for (NSDictionary *opt in options) {
-		NSString *key = opt[@"defaultsKey"] ?: fallbackKey;
-		if ([key isEqualToString:@"sci_ig_wordmark_variant"]) return YES;
-	}
+	(void)options;
+	(void)fallbackKey;
 	return NO;
 }
 
@@ -408,7 +314,7 @@ static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
 	vc.currentValue = defaultsKey.length ? ([[NSUserDefaults standardUserDefaults] stringForKey:defaultsKey] ?: @"") : @"";
 	vc.wordmarkMode = [self optionsAreWordmark:options fallbackKey:defaultsKey];
 	vc.onChange = onChange;
-	[self presentSheetVC:vc from:presenter];
+	[self presentSheetVC:vc from:presenter sourceView:nil];
 }
 
 + (void)presentFrom:(UIViewController *)presenter title:(NSString *)title menu:(UIMenu *)menu onPick:(void (^)(UICommand *command))onPick {
@@ -419,9 +325,8 @@ static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
 	vc.title = title;
 	vc.wordmarkMode = [self optionsAreWordmark:options fallbackKey:nil];
 	vc.onPickCommand = onPick;
-	[self presentSheetVC:vc from:presenter];
+	[self presentSheetVC:vc from:presenter sourceView:nil];
 }
-
 
 + (void)presentFrom:(UIViewController *)presenter title:(NSString *)title menu:(UIMenu *)menu sourceView:(UIView *)sourceView onPick:(void (^)(UICommand *command))onPick {
 	NSArray *options = [self optionsFromMenu:menu prefix:nil];
@@ -435,18 +340,16 @@ static CGFloat SCIClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
 }
 
 + (void)presentSheetVC:(SCIOptionSheetVC *)vc from:(UIViewController *)presenter sourceView:(UIView *)sourceView {
-	vc.sourceView = sourceView;
-	if (sourceView && sourceView.superview && presenter.view) {
-		CGRect r = [sourceView.superview convertRect:sourceView.frame toView:presenter.view];
-		vc.sourceCenter = CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r));
-		vc.hasSourceCenter = YES;
-	}
-	vc.modalPresentationStyle = UIModalPresentationOverFullScreen;
-	[presenter presentViewController:vc animated:NO completion:nil];
-}
-
-+ (void)presentSheetVC:(SCIOptionSheetVC *)vc from:(UIViewController *)presenter {
-	[self presentSheetVC:vc from:presenter sourceView:nil];
+	vc.modalPresentationStyle = UIModalPresentationPopover;
+	vc.preferredContentSize = [vc preferredSheetSize];
+	UIPopoverPresentationController *popover = vc.popoverPresentationController;
+	UIView *anchor = sourceView ?: presenter.view;
+	popover.sourceView = anchor;
+	popover.sourceRect = anchor ? anchor.bounds : CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1.0, 1.0);
+	popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+	popover.delegate = vc;
+	popover.backgroundColor = UIColor.clearColor;
+	[presenter presentViewController:vc animated:YES completion:nil];
 }
 
 @end

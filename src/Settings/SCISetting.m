@@ -22,6 +22,42 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 	return fallback ?: @"";
 }
 
+
+static NSString *SCIWordmarkImageNameForValue(NSString *value) {
+	NSString *v = value.length ? value : @"off";
+	if ([v isEqualToString:@"1a"]) return @"instagram-wordmark-1a";
+	if ([v isEqualToString:@"1a_alt"]) return @"instagram-wordmark-1a-alt";
+	if ([v isEqualToString:@"1b"]) return @"instagram-wordmark-1b";
+	if ([v isEqualToString:@"1b_alt"]) return @"instagram-wordmark-1b-alt";
+	return @"instagram-wordmark-default";
+}
+
+static UIImage *SCIWordmarkTemplateImageNamed(NSString *name) {
+	if (!name.length) return nil;
+	NSBundle *bundle = SCILocalizationBundle();
+	UIImage *img = bundle ? [UIImage imageNamed:name inBundle:bundle compatibleWithTraitCollection:nil] : nil;
+	if (!img) img = [UIImage imageNamed:name];
+	return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+}
+
+static UIImage *SCIWordmarkCanvasImage(UIImage *image) {
+	if (!image) return nil;
+	CGSize canvas = CGSizeMake(82.0, 22.0);
+	CGSize source = image.size;
+	if (source.width <= 0.0 || source.height <= 0.0) return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+	CGFloat scale = MIN(canvas.width / source.width, canvas.height / source.height);
+	CGSize target = CGSizeMake(floor(source.width * scale), floor(source.height * scale));
+	CGRect rect = CGRectMake((canvas.width - target.width) * 0.5, (canvas.height - target.height) * 0.5, target.width, target.height);
+	UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
+	fmt.opaque = NO;
+	fmt.scale = UIScreen.mainScreen.scale;
+	UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:canvas format:fmt];
+	UIImage *rendered = [renderer imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull ctx) {
+		[image drawInRect:rect];
+	}];
+	return [rendered imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+}
+
 ///
 
 @implementation SCISetting
@@ -263,37 +299,57 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 
 - (UIMenu *)submenuForButton:(UIButton *)button submenu:(UIMenu*)submenu {
 	NSMutableArray<UIMenuElement *> *children = [NSMutableArray array];
+	BOOL hasSelectableValues = NO;
+	BOOL wordmarkMenu = NO;
 
 	for (id obj in submenu.children) {
-		// Handle recursive submenus
 		if ([obj isKindOfClass:[UIMenu class]]) {
 			[children addObject:[self submenuForButton:button submenu:(UIMenu *)obj]];
 			continue;
 		}
-		else if (![obj isKindOfClass:[UICommand class]]) {
-			continue;
-		}
+		if (![obj isKindOfClass:[UICommand class]]) continue;
 
 		UICommand *child = obj;
 		NSDictionary *props = [child.propertyList isKindOfClass:NSDictionary.class] ? child.propertyList : nil;
-		NSString *saved = [[NSUserDefaults standardUserDefaults] stringForKey:props[@"defaultsKey"]];
+		NSString *key = [props[@"defaultsKey"] isKindOfClass:NSString.class] ? props[@"defaultsKey"] : nil;
+		NSString *saved = key.length ? [[NSUserDefaults standardUserDefaults] stringForKey:key] : nil;
 		NSString *value = [props[@"value"] isKindOfClass:NSString.class] ? props[@"value"] : nil;
 		BOOL isWordmark = SCIIsWordmarkMenuCommand(props);
-		NSString *displayTitle = isWordmark ? SCIWordmarkDisplayTitleForValue(value, child.title) : child.title;
-		NSString *menuTitle = isWordmark ? @"" : child.title;
+		hasSelectableValues = hasSelectableValues || (key.length && value.length);
+		wordmarkMenu = wordmarkMenu || isWordmark;
+
+		UIImage *image = child.image;
+		NSString *menuTitle = child.title ?: @"";
+		if (isWordmark) {
+			NSString *imageName = [props[@"wordmarkImageName"] isKindOfClass:NSString.class] ? props[@"wordmarkImageName"] : SCIWordmarkImageNameForValue(value);
+			image = SCIWordmarkCanvasImage(SCIWordmarkTemplateImageNamed(imageName));
+			menuTitle = @"";
+		}
 
 		UICommand *command = [UICommand commandWithTitle:menuTitle
-											   image:child.image
-										  action:child.action
-									propertyList:child.propertyList];
+									   image:image
+								  action:child.action
+							propertyList:child.propertyList];
+		if ([command respondsToSelector:@selector(setDiscoverabilityTitle:)]) {
+			command.discoverabilityTitle = isWordmark ? SCIWordmarkDisplayTitleForValue(value, child.title) : child.discoverabilityTitle;
+		}
 
 		if (value.length && [value isEqualToString:saved]) {
 			command.state = UIMenuElementStateOn;
-
-			// Wordmark rows own their closed accessory image in
-			// SCISettingsViewController. Do not mutate that button here or UIKit will
-			// append the selected label ("Default") next to the preview image.
-			if (!isWordmark && ![props[@"noTitle"] boolValue]) {
+			if (isWordmark) {
+				UIImage *selectedImage = image ?: SCIWordmarkCanvasImage(SCIWordmarkTemplateImageNamed(SCIWordmarkImageNameForValue(value)));
+				[button setTitle:nil forState:UIControlStateNormal];
+				[button setImage:selectedImage forState:UIControlStateNormal];
+				button.accessibilityLabel = SCIWordmarkDisplayTitleForValue(value, child.title);
+				if (button.configuration) {
+					UIButtonConfiguration *cfg = button.configuration;
+					cfg.title = nil;
+					cfg.image = selectedImage;
+					cfg.imagePlacement = NSDirectionalRectEdgeLeading;
+					button.configuration = cfg;
+				}
+			} else if (![props[@"noTitle"] boolValue]) {
+				NSString *displayTitle = child.title ?: @"";
 				[button setImage:nil forState:UIControlStateNormal];
 				[button setTitle:displayTitle forState:UIControlStateNormal];
 				button.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -306,19 +362,18 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 					button.configuration = cfg;
 				}
 			}
-		}
-		else {
+		} else {
 			command.state = UIMenuElementStateOff;
 		}
-
-		// UIKit exposes menu separators through inline sections. Wrapping each
-		// command keeps the native menu owner while adding a thin divider between
-		// rows, matching the main settings list style without a custom presenter.
-		UIMenu *section = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[command]];
-		[children addObject:section];
+		[children addObject:command];
 	}
 
-	return [UIMenu menuWithTitle:submenu.title image:nil identifier:nil options:submenu.options children:children];
+	UIMenuOptions options = submenu.options;
+	if (hasSelectableValues) options |= UIMenuOptionsSingleSelection;
+	if (wordmarkMenu) {
+		if (@available(iOS 17.0, *)) options |= UIMenuOptionsDisplayAsPalette;
+	}
+	return [UIMenu menuWithTitle:submenu.title ?: @"" image:submenu.image identifier:submenu.identifier options:options children:children];
 }
 
 @end

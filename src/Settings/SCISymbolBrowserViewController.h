@@ -11,9 +11,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface SCISymbolBrowserViewController : SCIBaseSettingsListViewController <UISearchBarDelegate>
+@interface SCISymbolBrowserViewController : SCIBaseSettingsListViewController <UISearchResultsUpdating>
 - (instancetype)initWithImage:(SCISymbolImage)image;
-- (instancetype)initUnified; // both images (Instagram exec + FBShared) in one screen
 @end
 
 NS_ASSUME_NONNULL_END

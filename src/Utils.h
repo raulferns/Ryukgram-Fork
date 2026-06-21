@@ -41,6 +41,7 @@
 + (void)showQuickLookVC:(NSArray<id> *)items;
 + (void)showShareVC:(id)item;
 + (void)showSettingsVC:(UIWindow *)window;
++ (void)showSettingsVCFromSourceView:(UIView *)sourceView;
 + (void)showSettingsVC:(UIWindow *)window atTopLevelEntry:(NSString *)entryTitle;
 
 // iOS 26 drops touches on action sheets whose presenter is mid-animation or

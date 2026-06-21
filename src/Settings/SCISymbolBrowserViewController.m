@@ -2,6 +2,7 @@
 #import "SCISymbolBrowserViewController.h"
 #import "../Utils.h"
 #import <objc/runtime.h>
+#import "../UI/SCIUIKit26LiquidGlass.h"
 
 // Default surfacing when the search box is empty. This is intentionally a broad
 // discovery list, not just persisted overrides; search always scans the full
@@ -16,17 +17,13 @@ static NSArray<NSString *> *sciDefaultFilters(void) {
 static char kSCIRuntimeBrowserRowPayloadKey;
 static char kSCIRuntimeBrowserInteractionPayloadKey;
 
-@interface SCISymbolBrowserViewController () <UIContextMenuInteractionDelegate>
+@interface SCISymbolBrowserViewController () <UIContextMenuInteractionDelegate, UISearchResultsUpdating>
 @end
 
 @implementation SCISymbolBrowserViewController {
 	SCISymbolImage _image;
-	BOOL _unified;
 	NSArray<SCISymbolClass *> *_allClasses;
-	NSArray<SCISymbolClass *> *_fbClasses;
-	UISearchBar *_searchBar;
-	SCIUIKit26SearchBarContainerView *_searchContainer;
-	NSLayoutConstraint *_searchBottomConstraint;
+	UISearchController *_searchController;
 	NSString *_query;
 	UIActivityIndicatorView *_spinner;
 }
@@ -38,12 +35,6 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 	return self;
 }
 
-- (instancetype)initUnified {
-	self = [super initWithTitle:SCILocalized(@"Unified Runtime Browser")];
-	if (self) { _image = SCISymbolImageInstagram; _unified = YES; }
-	return self;
-}
-
 - (void)dealloc {
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
 }
@@ -52,9 +43,7 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 	[super viewDidLoad];
 	SCIUIKit26ConfigureViewController(self);
 
-	[self configureBottomSearchBar];
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillChangeFrame:) name:UIKeyboardWillChangeFrameNotification object:nil];
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
+	[self configureNativeSearchController];
 
 	_spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
 	_spinner.center = self.view.center;
@@ -63,82 +52,24 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 	[_spinner startAnimating];
 
 	SCISymbolImage img = _image;
-	BOOL unified = _unified;
 	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-		NSArray<SCISymbolClass *> *ig = [SCISymbolBrowserEngine classesForImage:img];
-		NSArray<SCISymbolClass *> *fb = unified ? [SCISymbolBrowserEngine classesForImage:SCISymbolImageFBShared] : nil;
+		NSArray<SCISymbolClass *> *classes = [SCISymbolBrowserEngine classesForImage:img];
 		dispatch_async(dispatch_get_main_queue(), ^{
-			self->_allClasses = ig;
-			self->_fbClasses = fb;
+			self->_allClasses = classes;
 			[self->_spinner stopAnimating];
 			[self rebuildSections];
 		});
 	});
 }
 
-- (void)configureBottomSearchBar {
-	self.tableView.tableHeaderView = nil;
-	[self applyBottomSearchInsetForKeyboardOverlap:0.0];
-
-	_searchContainer = [[SCIUIKit26SearchBarContainerView alloc] initWithRadius:22.0];
-	_searchContainer.translatesAutoresizingMaskIntoConstraints = NO;
-	_searchContainer.sciGlassInteractive = YES;
-	_searchContainer.sciGlassClearStyle = YES;
-	_searchContainer.sciGlassTintColor = [UIColor colorWithWhite:1.0 alpha:0.04];
-	[_searchContainer applyLiquidGlassStyle];
-	[self.view addSubview:_searchContainer];
-
-	_searchBar = _searchContainer.searchBar;
-	_searchBar.placeholder = SCILocalized(@"Search classes or BOOL getters…");
-	_searchBar.delegate = self;
-	SCIUIKit26ConfigureSearchBar(_searchBar);
-
-	UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
-	_searchBottomConstraint = [_searchContainer.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-10.0];
-	[NSLayoutConstraint activateConstraints:@[
-		[_searchContainer.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:14.0],
-		[_searchContainer.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-14.0],
-		_searchBottomConstraint,
-		[_searchContainer.heightAnchor constraintEqualToConstant:52.0],
-	]];
-}
-
-- (void)applyBottomSearchInsetForKeyboardOverlap:(CGFloat)overlap {
-	UIEdgeInsets inset = self.tableView.contentInset;
-	inset.bottom = 84.0 + MAX(0.0, overlap);
-	self.tableView.contentInset = inset;
-	self.tableView.scrollIndicatorInsets = inset;
-}
-
-- (void)keyboardWillHide:(NSNotification *)note {
-	[self updateSearchBarForKeyboardNotification:note hidden:YES];
-}
-
-- (void)keyboardWillChangeFrame:(NSNotification *)note {
-	[self updateSearchBarForKeyboardNotification:note hidden:NO];
-}
-
-- (void)updateSearchBarForKeyboardNotification:(NSNotification *)note hidden:(BOOL)hidden {
-	CGFloat overlap = 0.0;
-	if (!hidden) {
-		CGRect endFrame = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-		CGRect frameInView = [self.view convertRect:endFrame fromView:nil];
-		CGFloat rawOverlap = CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(frameInView);
-		overlap = MAX(0.0, rawOverlap - self.view.safeAreaInsets.bottom);
-	}
-
-	NSTimeInterval duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
-	UIViewAnimationOptions options = ([note.userInfo[UIKeyboardAnimationCurveUserInfoKey] unsignedIntegerValue] << 16);
-	void (^changes)(void) = ^{
-		self->_searchBottomConstraint.constant = -10.0 - overlap;
-		[self applyBottomSearchInsetForKeyboardOverlap:overlap];
-		[self.view layoutIfNeeded];
-	};
-	if (duration > 0.0) {
-		[UIView animateWithDuration:duration delay:0.0 options:options animations:changes completion:nil];
-	} else {
-		changes();
-	}
+- (void)configureNativeSearchController {
+	UISearchController *sc = [[UISearchController alloc] initWithSearchResultsController:nil];
+	sc.searchResultsUpdater = self;
+	sc.obscuresBackgroundDuringPresentation = NO;
+	sc.searchBar.placeholder = SCILocalized(@"Search classes or BOOL getters…");
+	_searchController = sc;
+	self.navigationItem.searchController = sc;
+	SCIUIKit26ConfigureSearchNavigationItem(self.navigationItem);
 }
 
 - (NSArray<NSString *> *)queryTokens {
@@ -218,72 +149,54 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 	[self rebuildSections];
 }
 
-// Builds the section for one class (or nil if no getter is visible for the query).
-// imageTag is prefixed to the header so the unified scope can show both images.
-- (SCIBaseSettingsSection *)sectionForClass:(SCISymbolClass *)c tokens:(NSArray<NSString *> *)tokens imageTag:(NSString *)imageTag {
-	NSArray<SCISymbolGetter *> *visibleGetters = [self visibleGettersForClass:c tokens:tokens];
-	if (!visibleGetters.count) return nil;
-
-	NSMutableArray<SCIBaseSettingsRow *> *rows = [NSMutableArray array];
-	for (SCISymbolGetter *g in visibleGetters) {
-		NSString *cn = c.className ?: @"";
-		NSString *sn = g.selectorName ?: @"";
-		BOOL isClass = g.isClassMethod;
-		NSString *overrideKey = g.overrideKey;
-		NSString *rowTitle = [NSString stringWithFormat:@"%@%@", isClass ? @"+ " : @"", sn];
-		__weak typeof(self) weakSelf = self;
-
-		SCIBaseSettingsRow *row = [SCIBaseSettingsRow
-			switchRowWithTitle:rowTitle
-					  subtitle:nil
-						 value:^BOOL{
-							 NSNumber *forced = [SCISymbolBrowserEngine overrideForKey:overrideKey];
-							 if (forced) return forced.boolValue;
-							 NSNumber *lv = [SCISymbolBrowserEngine liveValueForClass:cn selector:sn isClassMethod:isClass];
-							 return lv ? lv.boolValue : NO;
-						 }
-						action:^(BOOL enabled, __unused UIViewController *vc) {
-							 // Tapping ON creates a Force ON override. Tapping OFF does
-							 // not mean Force OFF; it removes the override and returns
-							 // the getter to IG default. Force OFF is available by
-							 // long-pressing the row.
-							 [SCISymbolBrowserEngine setOverride:(enabled ? @YES : nil) forClass:cn selector:sn isClassMethod:isClass];
-							 [weakSelf rebuildSections];
-						 }];
-		row.dynamicSubtitle = ^NSString *{
-			return [weakSelf subtitleForClass:cn selector:sn isClass:isClass overrideKey:overrideKey];
-		};
-		NSDictionary *payload = @{ @"class": cn, @"selector": sn, @"isClass": @(isClass), @"overrideKey": overrideKey ?: @"" };
-		objc_setAssociatedObject(row, &kSCIRuntimeBrowserRowPayloadKey, payload, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-		[rows addObject:row];
-	}
-	NSString *header = imageTag.length ? [NSString stringWithFormat:@"%@ · %@", imageTag, c.className ?: @""] : (c.className ?: @"");
-	return [SCIBaseSettingsSection sectionWithHeader:header footer:nil rows:rows];
-}
-
 - (void)rebuildSections {
-	if (!_allClasses && !_fbClasses) return;
+	if (!_allClasses) return;
 
 	NSArray<NSString *> *tokens = [self queryTokens];
 	NSMutableArray<SCIBaseSettingsSection *> *sections = [NSMutableArray array];
 
-	// Instagram scope (or the single selected image when not unified).
-	NSString *igTag = _unified ? @"IG" : nil;
 	for (SCISymbolClass *c in _allClasses) {
-		SCIBaseSettingsSection *s = [self sectionForClass:c tokens:tokens imageTag:igTag];
-		if (s) [sections addObject:s];
-	}
-	// FBShared scope (unified only).
-	if (_unified) {
-		for (SCISymbolClass *c in _fbClasses) {
-			SCIBaseSettingsSection *s = [self sectionForClass:c tokens:tokens imageTag:@"FB"];
-			if (s) [sections addObject:s];
+		NSArray<SCISymbolGetter *> *visibleGetters = [self visibleGettersForClass:c tokens:tokens];
+		if (!visibleGetters.count) continue;
+
+		NSMutableArray<SCIBaseSettingsRow *> *rows = [NSMutableArray array];
+		for (SCISymbolGetter *g in visibleGetters) {
+			NSString *cn = c.className ?: @"";
+			NSString *sn = g.selectorName ?: @"";
+			BOOL isClass = g.isClassMethod;
+			NSString *overrideKey = g.overrideKey;
+			NSString *rowTitle = [NSString stringWithFormat:@"%@%@", isClass ? @"+ " : @"", sn];
+			__weak typeof(self) weakSelf = self;
+
+			SCIBaseSettingsRow *row = [SCIBaseSettingsRow
+				switchRowWithTitle:rowTitle
+						  subtitle:nil
+							 value:^BOOL{
+								 NSNumber *forced = [SCISymbolBrowserEngine overrideForKey:overrideKey];
+								 if (forced) return forced.boolValue;
+								 NSNumber *lv = [SCISymbolBrowserEngine liveValueForClass:cn selector:sn isClassMethod:isClass];
+								 return lv ? lv.boolValue : NO;
+							 }
+							action:^(BOOL enabled, __unused UIViewController *vc) {
+								 // Tapping ON creates a Force ON override. Tapping OFF does
+								 // not mean Force OFF; it removes the override and returns
+								 // the getter to IG default. Force OFF is available by
+								 // long-pressing the row.
+								 [SCISymbolBrowserEngine setOverride:(enabled ? @YES : nil) forClass:cn selector:sn isClassMethod:isClass];
+								 [weakSelf rebuildSections];
+							 }];
+			row.dynamicSubtitle = ^NSString *{
+				return [weakSelf subtitleForClass:cn selector:sn isClass:isClass overrideKey:overrideKey];
+			};
+			NSDictionary *payload = @{ @"class": cn, @"selector": sn, @"isClass": @(isClass), @"overrideKey": overrideKey ?: @"" };
+			objc_setAssociatedObject(row, &kSCIRuntimeBrowserRowPayloadKey, payload, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			[rows addObject:row];
 		}
+		[sections addObject:[SCIBaseSettingsSection sectionWithHeader:c.className footer:nil rows:rows]];
 	}
 
-	NSUInteger indexed = _allClasses.count + _fbClasses.count;
-	NSString *mode = tokens.count ? SCILocalized(@"Search is scanning the full cached class/getter index; forced rows are only shown when they match the query.") : SCILocalized(@"Showing default discovery filters plus any forced overrides. Search scans every class and BOOL getter in the loaded image(s); no 80-row cap.");
-	NSString *footer = [NSString stringWithFormat:SCILocalized(@"Indexed %lu classes. %@"), (unsigned long)indexed, mode];
+	NSString *mode = tokens.count ? SCILocalized(@"Search is scanning the full cached class/getter index; forced rows are only shown when they match the query.") : SCILocalized(@"Showing default discovery filters plus any forced overrides. Search scans every class and BOOL getter in the loaded image; no 80-row cap.");
+	NSString *footer = [NSString stringWithFormat:SCILocalized(@"Indexed %lu classes in this image. %@"), (unsigned long)_allClasses.count, mode];
 	if (sections.count == 0) {
 		SCIBaseSettingsRow *hint = [SCIBaseSettingsRow
 			rowWithTitle:tokens.count ? SCILocalized(@"No matching classes/getters") : SCILocalized(@"No default matches")
@@ -336,10 +249,9 @@ static char kSCIRuntimeBrowserInteractionPayloadKey;
 	}];
 }
 
-- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
-	_query = searchText ?: @"";
+- (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
+	_query = searchController.searchBar.text ?: @"";
 	[self rebuildSections];
 }
-- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar { [searchBar resignFirstResponder]; }
 
 @end
