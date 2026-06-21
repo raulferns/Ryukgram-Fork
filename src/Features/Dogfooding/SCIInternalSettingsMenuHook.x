@@ -25,6 +25,39 @@ static Class SCIInternalMenuClass(void) {
     return C;
 }
 
+static void SCIForceBugReportMenuIvars(id vc) {
+    if (!vc) return;
+    Class cls = [vc class];
+    unsigned int count = 0;
+    Ivar *ivars = class_copyIvarList(cls, &count);
+    ILOG("checking %u bug-report-menu ivars for class %{public}s", count, class_getName(cls));
+
+    for (unsigned int i = 0; i < count; i++) {
+        Ivar ivar = ivars[i];
+        const char *name = ivar_getName(ivar);
+        if (!name) continue;
+
+        ptrdiff_t offset = ivar_getOffset(ivar);
+        NSString *ivarName = [NSString stringWithUTF8String:name];
+
+        if ([ivarName containsString:@"showInternalSettings"]) {
+            *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
+            ILOG("forced ivar %{public}s to 1", name);
+        } else if ([ivarName containsString:@"showLoggedOutInternalSettings"]) {
+            *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
+            ILOG("forced ivar %{public}s to 1", name);
+        } else if ([ivarName containsString:@"showShakeToReportPreferenceToggle"]) {
+            *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
+            ILOG("forced ivar %{public}s to 1", name);
+        } else if ([ivarName containsString:@"internalSettingsAvailabilityStatus"]) {
+            *((long *)((char *)(__bridge void *)vc + offset)) = 0;
+            ILOG("forced ivar %{public}s to 0", name);
+        }
+    }
+
+    free(ivars);
+}
+
 typedef id (*SCIBugMenuInitIMP)(id, SEL, id, id, id, id, id, id, long, long, BOOL, BOOL, BOOL);
 static SCIBugMenuInitIMP sOrigBugMenuInit = NULL;
 
@@ -34,12 +67,29 @@ static id sci_bugMenuInitHook(id self, SEL _cmd,
     long style, long status,
     BOOL showInternal, BOOL showLoggedOut, BOOL showShake)
 {
+    ILOG("init entry: status=%ld internal=%d loggedOut=%d shake=%d", status, showInternal, showLoggedOut, showShake);
     if (SCIInternalMenuEnabled()) {
         showInternal = YES;
         showShake = YES;
+        status = 0;
         if (SCIInternalMenuLoggedOutEnabled()) showLoggedOut = YES;
+        ILOG("init forced: status=%ld internal=%d loggedOut=%d shake=%d", status, showInternal, showLoggedOut, showShake);
     }
-    return sOrigBugMenuInit ? sOrigBugMenuInit(self, _cmd, deviceSession, userSession, reliabilityLogging, navChain, endpoint, entryPoint, style, status, showInternal, showLoggedOut, showShake) : self;
+
+    id result = sOrigBugMenuInit ? sOrigBugMenuInit(self, _cmd, deviceSession, userSession, reliabilityLogging, navChain, endpoint, entryPoint, style, status, showInternal, showLoggedOut, showShake) : self;
+    if (SCIInternalMenuEnabled()) {
+        SCIForceBugReportMenuIvars(result);
+    }
+    return result;
+}
+
+static void (*sOrigViewDidLoad)(id, SEL) = NULL;
+static void sci_viewDidLoad(id self, SEL _cmd) {
+    ILOG("viewDidLoad");
+    if (sOrigViewDidLoad) sOrigViewDidLoad(self, _cmd);
+    if (SCIInternalMenuEnabled()) {
+        SCIForceBugReportMenuIvars(self);
+    }
 }
 
 static BOOL (*sOrigShowInternal)(id, SEL) = NULL;
@@ -66,6 +116,12 @@ static BOOL sci_showAssistant(id self, SEL _cmd) {
     return sOrigShowAssistant ? sOrigShowAssistant(self, _cmd) : NO;
 }
 
+static long (*sOrigAvailabilityStatus)(id, SEL) = NULL;
+static long sci_availabilityStatus(id self, SEL _cmd) {
+    if (SCIInternalMenuEnabled()) return 0;
+    return sOrigAvailabilityStatus ? sOrigAvailabilityStatus(self, _cmd) : 2;
+}
+
 static void SCIHookBoolGetter(Class C, SEL sel, IMP replacement, IMP *orig) {
     if (!C || !sel || *orig) return;
     if (!class_getInstanceMethod(C, sel)) return;
@@ -75,6 +131,7 @@ static void SCIHookBoolGetter(Class C, SEL sel, IMP replacement, IMP *orig) {
 
 static void SCIInstallInternalMenuHook(void) {
     static BOOL didInitHook = NO;
+    static BOOL didViewDidLoadHook = NO;
     Class C = SCIInternalMenuClass();
     if (!C) { ILOG("IGBugReportMenuViewController not loaded"); return; }
 
@@ -87,10 +144,29 @@ static void SCIInstallInternalMenuHook(void) {
         ILOG("init hook %{public}s", didInitHook ? "hooked" : "failed");
     }
 
+    if (!didViewDidLoadHook) {
+        SEL viewDidLoadSel = @selector(viewDidLoad);
+        if (class_getInstanceMethod(C, viewDidLoadSel)) {
+            IMP orig = NULL;
+            MSHookMessageEx(C, viewDidLoadSel, (IMP)sci_viewDidLoad, &orig);
+            sOrigViewDidLoad = (void (*)(id, SEL))orig;
+            didViewDidLoadHook = (orig != NULL);
+            ILOG("viewDidLoad hook %{public}s", didViewDidLoadHook ? "hooked" : "failed");
+        }
+    }
+
     SCIHookBoolGetter(C, @selector(showInternalSettings), (IMP)sci_showInternal, (IMP *)&sOrigShowInternal);
     SCIHookBoolGetter(C, @selector(showLoggedOutInternalSettings), (IMP)sci_showLoggedOut, (IMP *)&sOrigShowLoggedOut);
     SCIHookBoolGetter(C, @selector(showShakeToReportPreferenceToggle), (IMP)sci_showShake, (IMP *)&sOrigShowShake);
     SCIHookBoolGetter(C, @selector(showDogfoodingAssistant), (IMP)sci_showAssistant, (IMP *)&sOrigShowAssistant);
+
+    SEL statusSel = NSSelectorFromString(@"internalSettingsAvailabilityStatus");
+    if (class_getInstanceMethod(C, statusSel) && !sOrigAvailabilityStatus) {
+        IMP orig = NULL;
+        MSHookMessageEx(C, statusSel, (IMP)sci_availabilityStatus, &orig);
+        sOrigAvailabilityStatus = (long (*)(id, SEL))orig;
+        ILOG("availability status hook %s", sOrigAvailabilityStatus ? "hooked" : "failed");
+    }
 }
 
 
@@ -102,6 +178,13 @@ void SCIInstallInternalSettingsMenuHookIfNeeded(void) {
 
 %ctor {
     @autoreleasepool {
-        SCIInstallInternalSettingsMenuHookIfNeeded();
+        [SCIInternalGatePrefs installCrashGuardIfNeeded];
+        SCIInstallInternalMenuHook();
+        double delays[] = {1.0, 3.0, 6.0, 10.0};
+        for (NSUInteger i = 0; i < sizeof(delays) / sizeof(delays[0]); i++) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delays[i] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                SCIInstallInternalMenuHook();
+            });
+        }
     }
 }

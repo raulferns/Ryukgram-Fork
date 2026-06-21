@@ -450,8 +450,22 @@ static NSDictionary *SCILightSnapshot(id obj, NSDictionary *meta) {
     if (cfg) {
         sSCICapturedDogfoodSettingsConfig = cfg;
         [self noteObject:cfg role:@"IGDogfoodingSettingsConfig" source:@"bestDogfoodSettingsConfig.live-object-graph"];
+        return cfg;
     }
-    return cfg;
+    Class cls = NSClassFromString(@"IGDogfoodingSettingsConfig");
+    if (cls) {
+        @try {
+            cfg = [[cls alloc] init];
+            if (cfg) {
+                sSCICapturedDogfoodSettingsConfig = cfg;
+                [self noteObject:cfg role:@"IGDogfoodingSettingsConfig" source:@"bestDogfoodSettingsConfig.fabricated"];
+                return cfg;
+            }
+        } @catch (id ex) {
+            [self noteAction:@"fabricate config" status:@"exception" detail:ex];
+        }
+    }
+    return nil;
 }
 
 + (id)bestDogfooder {
