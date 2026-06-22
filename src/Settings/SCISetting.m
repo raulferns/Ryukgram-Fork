@@ -299,8 +299,6 @@ static UIImage *SCIWordmarkCanvasImage(UIImage *image) {
 
 - (UIMenu *)submenuForButton:(UIButton *)button submenu:(UIMenu*)submenu {
 	NSMutableArray<UIMenuElement *> *children = [NSMutableArray array];
-	BOOL hasSelectableValues = NO;
-	BOOL wordmarkMenu = NO;
 
 	for (id obj in submenu.children) {
 		if ([obj isKindOfClass:[UIMenu class]]) {
@@ -315,8 +313,6 @@ static UIImage *SCIWordmarkCanvasImage(UIImage *image) {
 		NSString *saved = key.length ? [[NSUserDefaults standardUserDefaults] stringForKey:key] : nil;
 		NSString *value = [props[@"value"] isKindOfClass:NSString.class] ? props[@"value"] : nil;
 		BOOL isWordmark = SCIIsWordmarkMenuCommand(props);
-		hasSelectableValues = hasSelectableValues || (key.length && value.length);
-		wordmarkMenu = wordmarkMenu || isWordmark;
 
 		UIImage *image = child.image;
 		NSString *menuTitle = child.title ?: @"";
@@ -335,7 +331,6 @@ static UIImage *SCIWordmarkCanvasImage(UIImage *image) {
 		}
 
 		if (value.length && [value isEqualToString:saved]) {
-			command.state = UIMenuElementStateOn;
 			if (isWordmark) {
 				UIImage *selectedImage = image ?: SCIWordmarkCanvasImage(SCIWordmarkTemplateImageNamed(SCIWordmarkImageNameForValue(value)));
 				[button setTitle:nil forState:UIControlStateNormal];
@@ -362,17 +357,11 @@ static UIImage *SCIWordmarkCanvasImage(UIImage *image) {
 					button.configuration = cfg;
 				}
 			}
-		} else {
-			command.state = UIMenuElementStateOff;
 		}
 		[children addObject:command];
 	}
 
 	UIMenuOptions options = submenu.options;
-	if (hasSelectableValues) options |= UIMenuOptionsSingleSelection;
-	if (wordmarkMenu) {
-		if (@available(iOS 17.0, *)) options |= UIMenuOptionsDisplayAsPalette;
-	}
 	return [UIMenu menuWithTitle:submenu.title ?: @"" image:submenu.image identifier:submenu.identifier options:options children:children];
 }
 

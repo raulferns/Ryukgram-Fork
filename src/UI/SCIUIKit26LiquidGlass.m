@@ -129,11 +129,14 @@ UIColor *SCIUIKit26BaseSurfaceColor(void) {
 }
 
 UIColor *SCIUIKit26PanelFillColor(void) {
-    return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
-        return tc.userInterfaceStyle == UIUserInterfaceStyleDark
-            ? [UIColor colorWithWhite:0.0 alpha:0.20]
-            : [UIColor colorWithWhite:1.0 alpha:0.34];
-    }];
+    if (@available(iOS 13.0, *)) {
+        return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+            return tc.userInterfaceStyle == UIUserInterfaceStyleDark
+                ? UIColor.tertiarySystemGroupedBackgroundColor
+                : UIColor.secondarySystemGroupedBackgroundColor;
+        }];
+    }
+    return [UIColor colorWithWhite:1.0 alpha:0.10];
 }
 
 UIColor *SCIUIKit26SeparatorColor(void) {
@@ -145,11 +148,11 @@ UIColor *SCIUIKit26SeparatorColor(void) {
 }
 
 static UIColor *SCIUIKit26CellSelectedFillColor(void) {
-    return [[SCIUtils SCIColor_Primary] colorWithAlphaComponent:0.16];
+    return [UIColor.labelColor colorWithAlphaComponent:0.075];
 }
 
 static UIColor *SCIUIKit26CellPressedFillColor(void) {
-    return [UIColor.labelColor colorWithAlphaComponent:0.10];
+    return [UIColor.labelColor colorWithAlphaComponent:0.075];
 }
 
 static UIColor *SCIUIKit26BorderColor(void) {
@@ -298,14 +301,11 @@ void SCIUIKit26ConfigureScrollView(UIScrollView *scrollView) {
         UITableView *tableView = (UITableView *)scrollView;
         tableView.backgroundView = nil;
         tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
-        tableView.separatorColor = nil;
-        tableView.separatorInset = UIEdgeInsetsMake(0.0, 16.0, 0.0, 0.0);
-        if (@available(iOS 11.0, *)) tableView.separatorInsetReference = UITableViewSeparatorInsetFromCellEdges;
         if (@available(iOS 15.0, *)) tableView.sectionHeaderTopPadding = 0.0;
         if (@available(iOS 26.0, *)) {
             SEL setBackgroundEffect = NSSelectorFromString(@"setBackgroundEffect:");
             if ([tableView respondsToSelector:setBackgroundEffect]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(tableView, setBackgroundEffect, SCIUIKit26GlassEffect(YES, NO, nil));
+                ((void (*)(id, SEL, id))objc_msgSend)(tableView, setBackgroundEffect, nil);
             }
         }
     }
@@ -317,9 +317,6 @@ void SCIUIKit26ConfigureTableView(UITableView *tableView) {
     tableView.backgroundColor = UIColor.clearColor;
     tableView.backgroundView = nil;
     tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
-    tableView.separatorColor = nil;
-    tableView.separatorInset = UIEdgeInsetsMake(0.0, 16.0, 0.0, 0.0);
-    if (@available(iOS 11.0, *)) tableView.separatorInsetReference = UITableViewSeparatorInsetFromCellEdges;
     tableView.layoutMargins = UIEdgeInsetsMake(0.0, 16.0, 0.0, 16.0);
     tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
 }
@@ -421,9 +418,9 @@ void SCIUIKit26ConfigureSearchNavigationItem(UINavigationItem *navigationItem) {
         }
         SEL setPreferred = NSSelectorFromString(@"setPreferredSearchBarPlacement:");
         if ([navigationItem respondsToSelector:setPreferred]) {
-            // 0 is the UIKit automatic placement. It lets iPhone collapse to a toolbar button
-            // and regular-width layouts integrate search at the navigation bar edge.
-            ((void (*)(id, SEL, NSInteger))objc_msgSend)(navigationItem, setPreferred, 0);
+            // 1 is UINavigationItemSearchBarPlacementIntegrated on iOS 26.
+            // Do not force IntegratedButton here: it creates a bottom floating search surface.
+            ((void (*)(id, SEL, NSInteger))objc_msgSend)(navigationItem, setPreferred, 1);
         }
     }
 }
@@ -458,19 +455,17 @@ void SCIUIKit26ConfigureTableCell(UITableViewCell *cell) {
     cell.backgroundColor = UIColor.clearColor;
     cell.contentView.backgroundColor = UIColor.clearColor;
     cell.preservesSuperviewLayoutMargins = YES;
-    cell.layoutMargins = UIEdgeInsetsMake(0.0, 16.0, 0.0, 0.0);
-    cell.separatorInset = UIEdgeInsetsMake(0.0, 16.0, 0.0, 0.0);
 
     UIView *selected = [UIView new];
     selected.backgroundColor = SCIUIKit26CellPressedFillColor();
-    selected.layer.cornerRadius = 12.0;
+    selected.layer.cornerRadius = 0.0;
     if ([selected.layer respondsToSelector:@selector(setCornerCurve:)]) selected.layer.cornerCurve = kCACornerCurveContinuous;
     selected.clipsToBounds = YES;
     cell.selectedBackgroundView = selected;
 
     if (@available(iOS 14.0, *)) {
         UIBackgroundConfiguration *bg = [UIBackgroundConfiguration listGroupedCellConfiguration];
-        bg.backgroundColor = UIColor.clearColor;
+        bg.backgroundColor = SCIUIKit26PanelFillColor();
         bg.visualEffect = nil;
         bg.strokeColor = UIColor.clearColor;
         bg.strokeWidth = 0.0;
@@ -485,7 +480,7 @@ void SCIUIKit26ApplyTableCellSelectionTint(UITableViewCell *cell, BOOL selected)
     if (!cell) return;
     if (@available(iOS 14.0, *)) {
         UIBackgroundConfiguration *bg = cell.backgroundConfiguration ?: [UIBackgroundConfiguration listGroupedCellConfiguration];
-        bg.backgroundColor = selected ? SCIUIKit26CellSelectedFillColor() : UIColor.clearColor;
+        bg.backgroundColor = selected ? SCIUIKit26CellSelectedFillColor() : SCIUIKit26PanelFillColor();
         bg.visualEffect = nil;
         bg.strokeColor = UIColor.clearColor;
         bg.strokeWidth = 0.0;

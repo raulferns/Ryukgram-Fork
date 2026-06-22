@@ -107,6 +107,12 @@ static BOOL sciGroupInheritsSettingsLock(NSString *gid) {
         nav.lockGroupID = groupID;
         BOOL settingsSurface = [groupID isEqualToString:SCILockGroupSettings];
         nav.modalPresentationStyle = settingsSurface ? UIModalPresentationPageSheet : UIModalPresentationFullScreen;
+        if (settingsSurface) {
+            nav.view.backgroundColor = UIColor.clearColor;
+            nav.view.opaque = NO;
+            contentVC.view.backgroundColor = UIColor.clearColor;
+            contentVC.view.opaque = NO;
+        }
         if (settingsSurface && @available(iOS 15.0, *)) {
             UISheetPresentationController *sheet = nav.sheetPresentationController;
             sheet.detents = @[ UISheetPresentationControllerDetent.largeDetent ];
