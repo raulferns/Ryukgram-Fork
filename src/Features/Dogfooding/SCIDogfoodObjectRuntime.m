@@ -440,6 +440,19 @@ static NSDictionary *SCILightSnapshot(id obj, NSDictionary *meta) {
 
 + (id)activeUserSession { id s = [SCIUtils activeUserSession] ?: sSCICapturedUserSession; if (s) [self noteObject:s role:@"activeUserSession" source:(s == sSCICapturedUserSession ? @"captured userID" : @"SCIUtils.activeUserSession")]; return s; }
 
+static Class SCIFindSwiftClass(NSString *name) {
+    Class c = NSClassFromString(name);
+    if (c) return c;
+    c = objc_getClass(name.UTF8String);
+    if (c) return c;
+    NSString *mangled = [NSString stringWithFormat:@"_TtC20IGDogfoodingSettings%lu%@", (unsigned long)name.length, name];
+    c = NSClassFromString(mangled);
+    if (c) return c;
+    c = objc_getClass(mangled.UTF8String);
+    if (c) return c;
+    return Nil;
+}
+
 + (id)bestDogfoodSettingsConfig {
     id cfg = sSCICapturedDogfoodSettingsConfig;
     if (cfg) {
@@ -453,9 +466,9 @@ static NSDictionary *SCILightSnapshot(id obj, NSDictionary *meta) {
         return cfg;
     }
     
-    Class configCls = NSClassFromString(@"IGDogfoodingSettingsConfig");
-    Class sectionCls = NSClassFromString(@"IGDogfoodingSettingsSection");
-    Class itemCls = NSClassFromString(@"IGDogfoodingSettingsItem");
+    Class configCls = SCIFindSwiftClass(@"IGDogfoodingSettingsConfig");
+    Class sectionCls = SCIFindSwiftClass(@"IGDogfoodingSettingsSection");
+    Class itemCls = SCIFindSwiftClass(@"IGDogfoodingSettingsItem");
     
     if (configCls && sectionCls && itemCls) {
         @try {
