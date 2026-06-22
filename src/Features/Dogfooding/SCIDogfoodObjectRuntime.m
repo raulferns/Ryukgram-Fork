@@ -452,13 +452,31 @@ static NSDictionary *SCILightSnapshot(id obj, NSDictionary *meta) {
         [self noteObject:cfg role:@"IGDogfoodingSettingsConfig" source:@"bestDogfoodSettingsConfig.live-object-graph"];
         return cfg;
     }
-    Class cls = NSClassFromString(@"IGDogfoodingSettingsConfig");
-    if (cls) {
+    
+    Class configCls = NSClassFromString(@"IGDogfoodingSettingsConfig");
+    Class sectionCls = NSClassFromString(@"IGDogfoodingSettingsSection");
+    Class itemCls = NSClassFromString(@"IGDogfoodingSettingsItem");
+    
+    if (configCls && sectionCls && itemCls) {
         @try {
-            cfg = [[cls alloc] init];
+            id item1 = [[itemCls alloc] init];
+            [item1 setValue:@"Toggle FLEX" forKey:@"title"];
+            [item1 setValue:@YES forKey:@"value"];
+            
+            id item2 = [[itemCls alloc] init];
+            [item2 setValue:@"Logged Analytics Events" forKey:@"title"];
+            [item2 setValue:@NO forKey:@"value"];
+            
+            id section = [[sectionCls alloc] init];
+            [section setValue:@"FLEX & Analytics" forKey:@"title"];
+            [section setValue:@[item1, item2] forKey:@"items"];
+            
+            cfg = [[configCls alloc] init];
+            [cfg setValue:@[section] forKey:@"sections"];
+            
             if (cfg) {
                 sSCICapturedDogfoodSettingsConfig = cfg;
-                [self noteObject:cfg role:@"IGDogfoodingSettingsConfig" source:@"bestDogfoodSettingsConfig.fabricated"];
+                [self noteObject:cfg role:@"IGDogfoodingSettingsConfig" source:@"bestDogfoodSettingsConfig.fabricated_populated"];
                 return cfg;
             }
         } @catch (id ex) {
