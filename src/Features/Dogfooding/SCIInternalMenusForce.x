@@ -33,18 +33,19 @@ static void dummy_socket_func(void *a __unused, void *b __unused, void *c __unus
     // No-op to prevent crashes if a socket resolves to NULL
 }
 
-static void *custom_XPluginsGetDataFunc(int paramID, ...) {
+static uint32_t mock_socket_config[2] = { 0, 117 };
+
+static void *mock_data_func_impl(void) {
+    return &mock_socket_config;
+}
+
+static void *custom_XPluginsGetDataFunc(int paramID) {
     // 1681030145 is 0x64327C01
     if (paramID == 1681030145) {
-        // Return a static buffer containing a mock socket ID (e.g. 117) at offset 4
-        static uint32_t mock_socket_config[2] = { 0, 117 };
-        return &mock_socket_config;
+        return (void *)mock_data_func_impl;
     }
     if (orig_XPluginsGetDataFuncOrAbort) {
-        XPluginsDataFunc orig_func = (XPluginsDataFunc)orig_XPluginsGetDataFuncOrAbort(paramID);
-        if (orig_func) {
-            return orig_func(paramID);
-        }
+        return orig_XPluginsGetDataFuncOrAbort(paramID);
     }
     return NULL;
 }
