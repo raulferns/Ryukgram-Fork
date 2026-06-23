@@ -146,7 +146,7 @@ static void sci_didSelectRow(id self, SEL _cmd, id tableView, id indexPath) {
         ILOG("intercepted Internal Settings tap");
         Class runtimeCls = NSClassFromString(@"SCIDogfoodObjectRuntime");
         if (runtimeCls) {
-            BOOL ok = ((BOOL(*)(id, SEL))objc_msgSend)(runtimeCls, NSSelectorFromString(@"tryOpenMetaLocalExperimentBrowser"));
+            BOOL ok = ((BOOL(*)(id, SEL))objc_msgSend)(runtimeCls, NSSelectorFromString(@"tryOpenNativeDogfoodSettings"));
             if (ok) return;
         }
     }

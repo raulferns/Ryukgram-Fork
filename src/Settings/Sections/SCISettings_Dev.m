@@ -14,6 +14,7 @@
 #import "../SCIInternalActionsViewController.h"
 #import "../SCISymbolBrowserViewController.h"
 #import "../SCISymbolsBrowserViewController.h"
+#import "../SCIFBMobileConfigOverridesTableSearchViewController.h"
 #import "../SCIIGDSLauncherConfigViewController.h"
 #import "../../Features/Dogfooding/SCIInternalSettingsApplier.h"
 #import "../../Features/Dogfooding/SCIInternalMenusLauncher.h"
@@ -162,6 +163,10 @@
 							   subtitle:SCILocalized(@"Exec + FBShared in one Liquid Glass browser. Tabs: image scope and ObjC/C/DATA/Swift, with safe ABI-aware actions.")
 							       icon:[SCISymbol symbolWithIGName:@"bcn_code_outline_24" fallback:@"square.grid.2x2"]
 							viewController:[[SCISymbolsBrowserViewController alloc] initWithMode:SCICSymbolsBrowserModeObjCMethods]],
+												[SCISetting navigationCellWithTitle:SCILocalized(@"FBMobileConfigOverridesTable Search")
+							   subtitle:SCILocalized(@"Check presence and search for FBMobileConfigOverridesTable symbols in the binary stubs")
+							       icon:[SCISymbol symbolWithIGName:@"bcn_search_outline_24" fallback:@"magnifyingglass.circle"]
+							viewController:[SCIFBMobileConfigOverridesTableSearchViewController new]],
 											]
 										},
 										@{
