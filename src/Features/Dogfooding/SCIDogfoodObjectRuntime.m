@@ -548,6 +548,30 @@ static void SCIRawSetOffset(id obj, ptrdiff_t offset, id value) {
     *ptr = (__bridge_retained void *)value;
 }
 
+static void SCISetOptionsIvar(id options, const char *name, unsigned long long val) {
+    Ivar ivar = class_getInstanceVariable(object_getClass(options), name);
+    if (ivar) {
+        ptrdiff_t offset = ivar_getOffset(ivar);
+        const char *type = ivar_getTypeEncoding(ivar);
+        if (type && type[0] == 'B') {
+            *(BOOL *)((char *)(__bridge void *)options + offset) = (BOOL)val;
+        } else {
+            *(unsigned long long *)((char *)(__bridge void *)options + offset) = val;
+        }
+    }
+}
+
+static id SCIFabricateOptionsWithBoolValue(BOOL value) {
+    Class optionsCls = NSClassFromString(@"IGDogfoodingSettingsOptions");
+    if (!optionsCls) return nil;
+    id options = [[optionsCls alloc] init];
+    if (options) {
+        SCISetOptionsIvar(options, "_subtype", 1); // 1 = boolean
+        SCISetOptionsIvar(options, "_boolean_value", value ? 1 : 0);
+    }
+    return options;
+}
+
 + (id)bestDogfoodSettingsConfig {
     [self dumpAllDogfoodingClasses];
     id cfg = sSCICapturedDogfoodSettingsConfig;
@@ -568,36 +592,34 @@ static void SCIRawSetOffset(id obj, ptrdiff_t offset, id value) {
     
     if (configCls && sectionCls && itemCls) {
         typedef id (*IGDevirtualizedValueObjectInitFn)(id);
-        typedef NSDictionary *(*IGDevirtualizedValueObjectDebugDictionaryDescriptionFn)(id);
         
         static IGDevirtualizedValueObjectInitFn sIGDevirtualizedValueObjectInit = NULL;
-        static IGDevirtualizedValueObjectDebugDictionaryDescriptionFn sIGDevirtualizedValueObjectDebugDesc = NULL;
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             sIGDevirtualizedValueObjectInit = (IGDevirtualizedValueObjectInitFn)dlsym(RTLD_DEFAULT, "IGDevirtualizedValueObjectInit");
             if (!sIGDevirtualizedValueObjectInit) {
                 sIGDevirtualizedValueObjectInit = (IGDevirtualizedValueObjectInitFn)dlsym(RTLD_DEFAULT, "_IGDevirtualizedValueObjectInit");
             }
-            sIGDevirtualizedValueObjectDebugDesc = (IGDevirtualizedValueObjectDebugDictionaryDescriptionFn)dlsym(RTLD_DEFAULT, "IGDevirtualizedValueObjectDebugDictionaryDescription");
-            if (!sIGDevirtualizedValueObjectDebugDesc) {
-                sIGDevirtualizedValueObjectDebugDesc = (IGDevirtualizedValueObjectDebugDictionaryDescriptionFn)dlsym(RTLD_DEFAULT, "_IGDevirtualizedValueObjectDebugDictionaryDescription");
-            }
-            NSLog(@"[RyukGram] Resolved IGDevirtualizedValueObjectInit: %p, DebugDesc: %p", sIGDevirtualizedValueObjectInit, sIGDevirtualizedValueObjectDebugDesc);
+            NSLog(@"[RyukGram] Resolved IGDevirtualizedValueObjectInit: %p", sIGDevirtualizedValueObjectInit);
         });
 
         @try {
+            id opt1 = SCIFabricateOptionsWithBoolValue(YES);
             id item1 = [itemCls alloc];
             SCIRawSetOffset(item1, 16, @"Toggle FLEX");
-            SCIRawSetOffset(item1, 32, @YES);
+            SCIRawSetOffset(item1, 24, @"ryukgram_flex");
+            SCIRawSetOffset(item1, 32, opt1);
             if (sIGDevirtualizedValueObjectInit) {
                 item1 = sIGDevirtualizedValueObjectInit(item1);
             } else {
                 item1 = [item1 init];
             }
             
+            id opt2 = SCIFabricateOptionsWithBoolValue(NO);
             id item2 = [itemCls alloc];
             SCIRawSetOffset(item2, 16, @"Logged Analytics Events");
-            SCIRawSetOffset(item2, 32, @NO);
+            SCIRawSetOffset(item2, 24, @"ryukgram_analytics");
+            SCIRawSetOffset(item2, 32, opt2);
             if (sIGDevirtualizedValueObjectInit) {
                 item2 = sIGDevirtualizedValueObjectInit(item2);
             } else {
@@ -614,6 +636,7 @@ static void SCIRawSetOffset(id obj, ptrdiff_t offset, id value) {
             }
             
             cfg = [configCls alloc];
+            SCIRawSetOffset(cfg, 16, @"RyukGram Developer Settings");
             SCIRawSetOffset(cfg, 24, @[section]);
             if (sIGDevirtualizedValueObjectInit) {
                 cfg = sIGDevirtualizedValueObjectInit(cfg);
