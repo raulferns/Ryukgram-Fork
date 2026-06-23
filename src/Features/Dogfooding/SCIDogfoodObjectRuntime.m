@@ -586,6 +586,21 @@ static void SCIRawSetOffset(id obj, ptrdiff_t offset, id value) {
         });
 
         @try {
+            // Log internal_classInfo to find exact offsets/properties
+            @try {
+                id configInfo = [configCls performSelector:@selector(internal_classInfo)];
+                id sectionInfo = [sectionCls performSelector:@selector(internal_classInfo)];
+                id itemInfo = [itemCls performSelector:@selector(internal_classInfo)];
+                NSLog(@"[RyukGram] Config classInfo: %@", configInfo);
+                NSLog(@"[RyukGram] Section classInfo: %@", sectionInfo);
+                NSLog(@"[RyukGram] Item classInfo: %@", itemInfo);
+                [self noteAction:@"Config classInfo" status:@"dump" detail:configInfo];
+                [self noteAction:@"Section classInfo" status:@"dump" detail:sectionInfo];
+                [self noteAction:@"Item classInfo" status:@"dump" detail:itemInfo];
+            } @catch (id infoEx) {
+                NSLog(@"[RyukGram] Failed to query classInfo: %@", infoEx);
+            }
+
             id item1 = [itemCls alloc];
             SCIRawSetOffset(item1, 16, @"Toggle FLEX");
             SCIRawSetOffset(item1, 32, @YES);
@@ -593,6 +608,10 @@ static void SCIRawSetOffset(id obj, ptrdiff_t offset, id value) {
                 item1 = sIGDevirtualizedValueObjectInit(item1);
             } else {
                 item1 = [item1 init];
+            }
+            if (item1 && sIGDevirtualizedValueObjectDebugDesc) {
+                NSLog(@"[RyukGram] Item1 debugDesc: %@", sIGDevirtualizedValueObjectDebugDesc(item1));
+                [self noteAction:@"fabricate item1" status:@"success" detail:sIGDevirtualizedValueObjectDebugDesc(item1)];
             }
             
             id item2 = [itemCls alloc];
@@ -603,6 +622,10 @@ static void SCIRawSetOffset(id obj, ptrdiff_t offset, id value) {
             } else {
                 item2 = [item2 init];
             }
+            if (item2 && sIGDevirtualizedValueObjectDebugDesc) {
+                NSLog(@"[RyukGram] Item2 debugDesc: %@", sIGDevirtualizedValueObjectDebugDesc(item2));
+                [self noteAction:@"fabricate item2" status:@"success" detail:sIGDevirtualizedValueObjectDebugDesc(item2)];
+            }
             
             id section = [sectionCls alloc];
             SCIRawSetOffset(section, 16, @"FLEX & Analytics");
@@ -611,6 +634,10 @@ static void SCIRawSetOffset(id obj, ptrdiff_t offset, id value) {
                 section = sIGDevirtualizedValueObjectInit(section);
             } else {
                 section = [section init];
+            }
+            if (section && sIGDevirtualizedValueObjectDebugDesc) {
+                NSLog(@"[RyukGram] Section debugDesc: %@", sIGDevirtualizedValueObjectDebugDesc(section));
+                [self noteAction:@"fabricate section" status:@"success" detail:sIGDevirtualizedValueObjectDebugDesc(section)];
             }
             
             cfg = [configCls alloc];
