@@ -13,7 +13,6 @@
 // This orchestrator now only drives the genuinely on-demand pieces: internal
 // menus force, the internal-settings shake menu, and the IGDS launcher hooks.
 
-void SCIInstallInternalSettingsMenuHookIfNeeded(void);
 void SCIIGDSEnsureHooksInstalled(void);
 
 static BOOL SCIKeyEqualsAny(NSString *key, NSArray<NSString *> *keys) {
@@ -62,7 +61,8 @@ void SCIAdvancedHooksApplyForChangedKey(NSString *key, BOOL isOn) {
     if (!isOn || !key.length) return;
     @autoreleasepool {
         if ([key isEqualToString:@"sci_internal_menus"]) (void)SCIInternalMenusForceApplyNow();
-        if (SCIKeyEqualsAny(key, SCIInternalSettingsKeys())) SCIInstallInternalSettingsMenuHookIfNeeded();
+        // Internal settings bug-reporter init agora é instalado no %ctor de
+        // SCIEmployeeInternal.x (toggle sci_employee_internal, requer restart).
         if (SCIKeyEqualsAny(key, SCIIGDSKeys())) SCIIGDSEnsureHooksInstalled();
     }
 }

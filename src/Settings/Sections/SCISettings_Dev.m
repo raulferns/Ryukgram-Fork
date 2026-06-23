@@ -33,12 +33,13 @@
 												@"rows": @[
 													[SCISetting switchCellWithTitle:SCILocalized(@"★ Internal & Dogfood Menus") subtitle:SCILocalized(@"Persists ON/OFF. Applies only when switched ON inside Settings; never auto-runs during launch.") defaultsKey:@"sci_internal_menus" requiresRestart:NO],
 													[SCISetting switchCellWithTitle:SCILocalized(@"Internal hook crash guard") subtitle:SCILocalized(@"Auto-disables active internal gates if the previous launch crashed before becoming stable") defaultsKey:@"sci_internal_gate_crash_guard_enabled" requiresRestart:YES],
-											[SCISetting switchCellWithTitle:SCILocalized(@"Employee/Internal/Dogfood keystone") subtitle:SCILocalized(@"Forces employee C gates + IGAdPlatformLogger ObjC/Swift isEmployee. Reveals native internal/dogfood rows where IG gates them. Requires restart.") defaultsKey:@"sci_force_ig_internal_employee" requiresRestart:YES],
+													[SCISetting switchCellWithTitle:SCILocalized(@"Force all IG-only/debug ObjC gates") subtitle:SCILocalized(@"Badges internos, launch debug info e story debug underlay (isEmployee agora fica no toggle Employee / Internal acima)") defaultsKey:@"sci_force_ig_internal_employee" requiresRestart:NO],
 												[SCISetting switchCellWithTitle:SCILocalized(@"★ Force ALL MobileConfig gates") subtitle:SCILocalized(@"Master legacy agora só cobre IGMobileConfig bool, iOS18 internal apps e Minos; EasyGating/MCI/MSGC usam seus próprios toggles para evitar crash em lote.") defaultsKey:@"sci_force_all_mc_gates" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Force all MobileConfig BOOL gates") subtitle:@"" defaultsKey:@"sci_force_mc_internal_use_all" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"MobileConfig internal-use BOOL") subtitle:@"" defaultsKey:@"sci_force_mc_internal_use_boolean" requiresRestart:YES],
 													[SCISetting switchCellWithTitle:SCILocalized(@"Instagram internal apps installed") subtitle:SCILocalized(@"Uses the exported installed-internal-apps symbol when available; requires restart.") defaultsKey:@"sci_force_ig_internal_apps_installed_after_ios18" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Minos dogfood MEK encryption") subtitle:@"" defaultsKey:@"sci_force_minos_dogfood_mek_encryption" requiresRestart:YES],
+												[SCISetting switchCellWithTitle:SCILocalized(@"★ Employee / Internal") subtitle:SCILocalized(@"Um toggle (estilo FBTweak): força isEmployee (ObjC+Swift), os C gates ig_is_employee/ig_is_employee_or_test_user (fishhook) e o init do bug reporter — as entradas internal/dogfood aparecem naturalmente. Requer restart.") defaultsKey:@"sci_employee_internal" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Persist employee defaults") subtitle:@"" defaultsKey:@"sci_force_employee_defaults_persist" requiresRestart:NO],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Featured internal badge") subtitle:@"" defaultsKey:@"sci_force_ig_featured_internal_badge" requiresRestart:NO],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Inbox internal badge") subtitle:@"" defaultsKey:@"sci_force_ig_inbox_internal_badge" requiresRestart:NO],
@@ -109,8 +110,6 @@
 														if(top)[top presentViewController:a animated:YES completion:nil];
 													}
 												],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Show Internal Settings menu") subtitle:SCILocalized(@"Hooks IGBugReportMenuViewController init and forces the native showInternalSettings flags. Shake device to open it.") defaultsKey:@"sci_force_internal_settings_menu" requiresRestart:NO],
-												[SCISetting switchCellWithTitle:SCILocalized(@"└ also when logged out") subtitle:SCILocalized(@"Also forces showLoggedOutInternalSettings=YES") defaultsKey:@"sci_force_internal_settings_loggedout" requiresRestart:NO],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Auto-apply on launch (native)") subtitle:SCILocalized(@"Re-applies a few seconds after login") defaultsKey:@"sci_apply_internal_native" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Enable debug footer") subtitle:SCILocalized(@"Gateway to internal/debug menus (applied by the button above)") defaultsKey:@"sci_apply_internal_native" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Force Bloks experience ON") subtitle:SCILocalized(@"setForceBloksExperienceOn") defaultsKey:@"sci_apply_force_bloks" requiresRestart:YES],
@@ -131,8 +130,8 @@
 														if(![r hasPrefix:@"opened"] && ![r hasPrefix:@"presented"]){ UIAlertController *a=[UIAlertController alertControllerWithTitle:SCILocalized(@"Internal menu") message:r preferredStyle:UIAlertControllerStyleAlert]; [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]]; if(top)[top presentViewController:a animated:YES completion:nil]; }
 													}
 												],
-												[SCISetting buttonCellWithTitle:SCILocalized(@"Open Dogfooding Settings (openWithConfig)")
-													   subtitle:SCILocalized(@"Validated native path: IGDogfoodingSettings openWithConfig using an empty config object")
+												[SCISetting buttonCellWithTitle:SCILocalized(@"Open Dogfooding Settings VC")
+													   subtitle:SCILocalized(@"Best-effort: constructs the internal settings VC directly")
 													       icon:[SCISymbol symbolWithIGName:@"toolbox" fallback:@"wrench.and.screwdriver"]
 													     action:^(void) {
 														NSString *r = [SCIInternalMenusLauncher openDogfoodingSettingsVC];

@@ -258,6 +258,27 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 // MARK: -  Instance methods
 
 - (UIMenu *)menuForButton:(UIButton *)button {
+	// Padrão correto iOS 26 (WWDC25 "Build a UIKit app with the new design"):
+	//  • reconstrói ao ABRIR via UIDeferredMenuElement(uncached) -> o checkmark da
+	//    opção selecionada sempre reflete o valor atual (antes ficava sem highlight
+	//    porque o menu era montado uma vez na criação da célula).
+	//  • título VAZIO -> sem header reservando margem (corrige "margin errada").
+	//  • UIMenuOptionsSingleSelection + UIAction/UICommand.state=.on -> highlight nativo.
+	//  • UIMenuOptionsDisplayInline -> seção inline (separadores padrão do sistema).
+	// O botão segue glass (SCIUIKit26ConfigureButton) -> morphing automático.
+	if (@available(iOS 15.0, *)) {
+		__weak typeof(self) ws = self;
+		__weak UIButton *wb = button;
+		UIDeferredMenuElement *deferred = [UIDeferredMenuElement uncachedElementWithProvider:^(void (^completion)(NSArray<UIMenuElement *> * _Nonnull)) {
+			UIMenu *built = [ws submenuForButton:wb submenu:ws.baseMenu];
+			completion(built ? built.children : @[]);
+		}];
+		return [UIMenu menuWithTitle:@""
+							   image:nil
+						  identifier:nil
+							 options:(UIMenuOptionsSingleSelection | UIMenuOptionsDisplayInline)
+							children:@[deferred]];
+	}
 	return [self submenuForButton:button submenu:self.baseMenu];
 }
 
@@ -313,7 +334,8 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 
 	UIMenuOptions options = submenu.options;
 	if (@available(iOS 15.0, *)) options |= UIMenuOptionsSingleSelection;
-	return [UIMenu menuWithTitle:submenu.title image:nil identifier:nil options:options children:children];
+	// título vazio: o header do menu sai do wrapper em menuForButton: (sem margem extra)
+	return [UIMenu menuWithTitle:@"" image:nil identifier:nil options:options children:children];
 }
 
 @end

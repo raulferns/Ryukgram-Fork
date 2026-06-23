@@ -3,10 +3,60 @@
 // Wordmark thumbnails ship in the tweak bundle (BundleAssets). Template-rendered
 // so they tint with the menu. Returns nil if the asset is missing → caller falls
 // back to an SF Symbol.
+// Corta o transparente e normaliza num canvas consistente em pontos, pra a
+// wordmark PREENCHER o slot de ícone do UIMenu (sem isso fica minúscula porque o
+// PNG vem com muito padding transparente). Template -> tinge com o menu.
+static UIImage *SCIWordmarkMenuTrimScale(UIImage *img, CGSize box) {
+    if (!img) return nil;
+    CGImageRef cg = img.CGImage;
+    if (!cg) return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    size_t w = CGImageGetWidth(cg), h = CGImageGetHeight(cg);
+    if (!w || !h) return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    CGColorSpaceRef csp = CGColorSpaceCreateDeviceRGB();
+    uint8_t *buf = (uint8_t *)calloc(w * h * 4, 1);
+    UIImage *trimmed = img;
+    if (buf && csp) {
+        CGContextRef ctx = CGBitmapContextCreate(buf, w, h, 8, w * 4, csp, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+        if (ctx) {
+            CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), cg);
+            long minx = w, miny = h, maxx = -1, maxy = -1;
+            for (size_t y = 0; y < h; y++) {
+                for (size_t x = 0; x < w; x++) {
+                    if (buf[(y * w + x) * 4 + 3] > 12) {
+                        if ((long)x < minx) minx = x; if ((long)x > maxx) maxx = x;
+                        if ((long)y < miny) miny = y; if ((long)y > maxy) maxy = y;
+                    }
+                }
+            }
+            if (maxx >= minx && maxy >= miny) {
+                CGImageRef cropped = CGImageCreateWithImageInRect(cg, CGRectMake(minx, miny, maxx - minx + 1, maxy - miny + 1));
+                if (cropped) { trimmed = [UIImage imageWithCGImage:cropped scale:img.scale orientation:img.imageOrientation]; CGImageRelease(cropped); }
+            }
+            CGContextRelease(ctx);
+        }
+    }
+    if (buf) free(buf);
+    if (csp) CGColorSpaceRelease(csp);
+    CGSize sz = trimmed.size;
+    if (sz.width <= 0 || sz.height <= 0) return [trimmed imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    CGFloat r = MIN(box.width / sz.width, box.height / sz.height);
+    if (r <= 0) r = 1.0;
+    CGSize target = CGSizeMake(ceil(sz.width * r), ceil(sz.height * r));
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
+    fmt.opaque = NO;
+    UIGraphicsImageRenderer *rnd = [[UIGraphicsImageRenderer alloc] initWithSize:target format:fmt];
+    UIImage *out = [rnd imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull c) {
+        [trimmed drawInRect:CGRectMake(0, 0, target.width, target.height)];
+    }];
+    return [out imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+}
+
 static UIImage *SCIWordmarkMenuImage(NSString *name) {
     NSBundle *bundle = SCILocalizationBundle();
     UIImage *img = bundle ? [UIImage imageNamed:name inBundle:bundle compatibleWithTraitCollection:nil] : nil;
-    return img ? [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] : nil;
+    // Canvas alvo: alto o suficiente pra preencher o slot do menu (UIMenu limita a
+    // altura ~22pt; cortar o padding faz a wordmark ocupar o slot inteiro).
+    return img ? SCIWordmarkMenuTrimScale(img, CGSizeMake(132.0, 30.0)) : nil;
 }
 
 @implementation SCITweakSettings (Section_Menus)
