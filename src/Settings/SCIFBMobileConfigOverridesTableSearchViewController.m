@@ -263,7 +263,7 @@ static void scic_collect_sections(const struct mach_header_64 *mh, NSMutableArra
     cfg.textProperties.numberOfLines = 0;
     cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightRegular];
     cfg.secondaryTextProperties.numberOfLines = 0;
-    cfg.secondaryTextProperties.textColor = UIColor.secondaryLabelColor;
+    cfg.secondaryTextProperties.color = UIColor.secondaryLabelColor;
     cell.contentConfiguration = cfg;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return cell;
