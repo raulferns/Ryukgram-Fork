@@ -466,7 +466,7 @@ static Class SCIFindSwiftClass(NSString *name) {
         for (unsigned int i = 0; i < count; i++) {
             Class cls = classes[i];
             NSString *className = NSStringFromClass(cls);
-            if ([className containsString:@"DogfoodingSettings"] || [className containsString:@"DogfoodingSettingsConfig"] || [className containsString:@"DogfoodingSettingsSection"] || [className containsString:@"DogfoodingSettingsItem"] || [className containsString:@"DogfoodingSettingsOptions"]) {
+            if ([className containsString:@"DogfoodingSettings"] || [className containsString:@"DogfoodingSettingsConfig"] || [className containsString:@"DogfoodingSettingsSection"] || [className containsString:@"DogfoodingSettingsItem"] || [className containsString:@"DogfoodingSettingsOptions"] || [className isEqualToString:@"IGDevirtualizedValueObject"] || [className isEqualToString:@"IGValueObject"]) {
                 
                 NSMutableArray *methodsArray = [NSMutableArray array];
                 unsigned int mc = 0;
