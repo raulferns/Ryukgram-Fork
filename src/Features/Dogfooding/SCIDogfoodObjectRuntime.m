@@ -456,7 +456,66 @@ static Class SCIFindSwiftClass(NSString *name) {
     return Nil;
 }
 
++ (void)dumpAllDogfoodingClasses {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        unsigned int count = 0;
+        Class *classes = objc_copyClassList(&count);
+        NSMutableArray *results = [NSMutableArray array];
+        
+        for (unsigned int i = 0; i < count; i++) {
+            Class cls = classes[i];
+            NSString *className = NSStringFromClass(cls);
+            if ([className containsString:@"DogfoodingSettings"] || [className containsString:@"DogfoodingSettingsConfig"] || [className containsString:@"DogfoodingSettingsSection"] || [className containsString:@"DogfoodingSettingsItem"] || [className containsString:@"DogfoodingSettingsOptions"]) {
+                
+                NSMutableArray *methodsArray = [NSMutableArray array];
+                unsigned int mc = 0;
+                Method *methods = class_copyMethodList(cls, &mc);
+                for (unsigned int j = 0; j < mc; j++) {
+                    [methodsArray addObject:NSStringFromSelector(method_getName(methods[j]))];
+                }
+                if (methods) free(methods);
+                
+                NSMutableArray *classMethodsArray = [NSMutableArray array];
+                Method *classMethods = class_copyMethodList(object_getClass(cls), &mc);
+                for (unsigned int j = 0; j < mc; j++) {
+                    [classMethodsArray addObject:NSStringFromSelector(method_getName(classMethods[j]))];
+                }
+                if (classMethods) free(classMethods);
+
+                NSMutableArray *propertiesArray = [NSMutableArray array];
+                objc_property_t *properties = class_copyPropertyList(cls, &mc);
+                for (unsigned int j = 0; j < mc; j++) {
+                    [propertiesArray addObject:[NSString stringWithUTF8String:property_getName(properties[j])]];
+                }
+                if (properties) free(properties);
+
+                NSDictionary *d = @{
+                    @"class": className,
+                    @"methods": methodsArray,
+                    @"classMethods": classMethodsArray,
+                    @"properties": propertiesArray
+                };
+                [results addObject:d];
+                [self noteAction:@"dump-dogfooding" status:className detail:d];
+            }
+        }
+        if (classes) free(classes);
+        
+        @try {
+            NSString *docPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+            NSString *filePath = [docPath stringByAppendingPathComponent:@"ryukgram_dogfooding_dump.json"];
+            NSData *data = [NSJSONSerialization dataWithJSONObject:results options:NSJSONWritingPrettyPrinted error:nil];
+            [data writeToFile:filePath atomically:YES];
+            NSLog(@"[RyukGram] Dumped %lu dogfooding classes to %@", (unsigned long)results.count, filePath);
+        } @catch (id ex) {
+            NSLog(@"[RyukGram] Failed to write dump file: %@", ex);
+        }
+    });
+}
+
 + (id)bestDogfoodSettingsConfig {
+    [self dumpAllDogfoodingClasses];
     id cfg = sSCICapturedDogfoodSettingsConfig;
     if (cfg) {
         [self noteObject:cfg role:@"IGDogfoodingSettingsConfig" source:@"bestDogfoodSettingsConfig.weak-cache"];
