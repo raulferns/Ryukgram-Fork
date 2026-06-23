@@ -445,6 +445,9 @@ static Class SCIFindSwiftClass(NSString *name) {
     if (c) return c;
     c = objc_getClass(name.UTF8String);
     if (c) return c;
+    NSString *dotPrefixed = [NSString stringWithFormat:@"IGDogfoodingSettings.%@", name];
+    c = NSClassFromString(dotPrefixed);
+    if (c) return c;
     NSString *mangled = [NSString stringWithFormat:@"_TtC20IGDogfoodingSettings%lu%@", (unsigned long)name.length, name];
     c = NSClassFromString(mangled);
     if (c) return c;
