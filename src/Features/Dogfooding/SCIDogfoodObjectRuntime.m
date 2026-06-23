@@ -5,6 +5,7 @@
 #import "../../Utils.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <dlfcn.h>
 
 static NSMapTable<id, NSMutableDictionary *> *sSCIObjMeta;
 static NSMutableArray<NSDictionary *> *sSCIRecentActions;
@@ -541,6 +542,12 @@ static void SCISafeSetIvar(id obj, NSString *propName, ptrdiff_t offset, id valu
     }
 }
 
+static void SCIRawSetOffset(id obj, ptrdiff_t offset, id value) {
+    if (!obj) return;
+    void **ptr = (void **)((char *)(__bridge void *)obj + offset);
+    *ptr = (__bridge_retained void *)value;
+}
+
 + (id)bestDogfoodSettingsConfig {
     [self dumpAllDogfoodingClasses];
     id cfg = sSCICapturedDogfoodSettingsConfig;
@@ -560,23 +567,68 @@ static void SCISafeSetIvar(id obj, NSString *propName, ptrdiff_t offset, id valu
     Class itemCls = SCIFindSwiftClass(@"IGDogfoodingSettingsItem");
     
     if (configCls && sectionCls && itemCls) {
+        typedef id (*IGDevirtualizedValueObjectInitFn)(id);
+        typedef NSDictionary *(*IGDevirtualizedValueObjectDebugDictionaryDescriptionFn)(id);
+        
+        static IGDevirtualizedValueObjectInitFn sIGDevirtualizedValueObjectInit = NULL;
+        static IGDevirtualizedValueObjectDebugDictionaryDescriptionFn sIGDevirtualizedValueObjectDebugDesc = NULL;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            sIGDevirtualizedValueObjectInit = (IGDevirtualizedValueObjectInitFn)dlsym(RTLD_DEFAULT, "IGDevirtualizedValueObjectInit");
+            if (!sIGDevirtualizedValueObjectInit) {
+                sIGDevirtualizedValueObjectInit = (IGDevirtualizedValueObjectInitFn)dlsym(RTLD_DEFAULT, "_IGDevirtualizedValueObjectInit");
+            }
+            sIGDevirtualizedValueObjectDebugDesc = (IGDevirtualizedValueObjectDebugDictionaryDescriptionFn)dlsym(RTLD_DEFAULT, "IGDevirtualizedValueObjectDebugDictionaryDescription");
+            if (!sIGDevirtualizedValueObjectDebugDesc) {
+                sIGDevirtualizedValueObjectDebugDesc = (IGDevirtualizedValueObjectDebugDictionaryDescriptionFn)dlsym(RTLD_DEFAULT, "_IGDevirtualizedValueObjectDebugDictionaryDescription");
+            }
+            NSLog(@"[RyukGram] Resolved IGDevirtualizedValueObjectInit: %p, DebugDesc: %p", sIGDevirtualizedValueObjectInit, sIGDevirtualizedValueObjectDebugDesc);
+        });
+
         @try {
-            id item1 = [[itemCls alloc] init];
-            SCISafeSetIvar(item1, @"title", 16, @"Toggle FLEX");
-            SCISafeSetIvar(item1, @"value", 32, @YES);
+            id item1 = [itemCls alloc];
+            SCIRawSetOffset(item1, 16, @"Toggle FLEX");
+            SCIRawSetOffset(item1, 32, @YES);
+            if (sIGDevirtualizedValueObjectInit) {
+                item1 = sIGDevirtualizedValueObjectInit(item1);
+            } else {
+                item1 = [item1 init];
+            }
             
-            id item2 = [[itemCls alloc] init];
-            SCISafeSetIvar(item2, @"title", 16, @"Logged Analytics Events");
-            SCISafeSetIvar(item2, @"value", 32, @NO);
+            id item2 = [itemCls alloc];
+            SCIRawSetOffset(item2, 16, @"Logged Analytics Events");
+            SCIRawSetOffset(item2, 32, @NO);
+            if (sIGDevirtualizedValueObjectInit) {
+                item2 = sIGDevirtualizedValueObjectInit(item2);
+            } else {
+                item2 = [item2 init];
+            }
             
-            id section = [[sectionCls alloc] init];
-            SCISafeSetIvar(section, @"title", 16, @"FLEX & Analytics");
-            SCISafeSetIvar(section, @"items", 24, @[item1, item2]);
+            id section = [sectionCls alloc];
+            SCIRawSetOffset(section, 16, @"FLEX & Analytics");
+            SCIRawSetOffset(section, 24, @[item1, item2]);
+            if (sIGDevirtualizedValueObjectInit) {
+                section = sIGDevirtualizedValueObjectInit(section);
+            } else {
+                section = [section init];
+            }
             
-            cfg = [[configCls alloc] init];
-            SCISafeSetIvar(cfg, @"sections", 24, @[section]);
+            cfg = [configCls alloc];
+            SCIRawSetOffset(cfg, 24, @[section]);
+            if (sIGDevirtualizedValueObjectInit) {
+                cfg = sIGDevirtualizedValueObjectInit(cfg);
+            } else {
+                cfg = [cfg init];
+            }
             
             if (cfg) {
+                if (sIGDevirtualizedValueObjectDebugDesc) {
+                    NSDictionary *debugDict = sIGDevirtualizedValueObjectDebugDesc(cfg);
+                    NSLog(@"[RyukGram] Fabricated config debug dictionary: %@", debugDict);
+                    [self noteAction:@"fabricate config" status:@"success" detail:debugDict];
+                } else {
+                    [self noteAction:@"fabricate config" status:@"success" detail:@"No debug dict available"];
+                }
                 sSCICapturedDogfoodSettingsConfig = cfg;
                 [self noteObject:cfg role:@"IGDogfoodingSettingsConfig" source:@"bestDogfoodSettingsConfig.fabricated_populated"];
                 return cfg;
