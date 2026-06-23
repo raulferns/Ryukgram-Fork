@@ -14,12 +14,66 @@
 // no separate manual Apply button and nothing runs automatically at launch.
 
 #import <Foundation/Foundation.h>
+#import <objc/runtime.h>
+#import <substrate.h>
 #import "../../Utils.h"
 #import "../Gating/SCIRuntimeBoolForce.h"
 #import "SCIInternalMenusForce.h"
 
+@interface SCIMockEmployeeFragment : NSObject
+- (NSString *)graphQLID;
+- (NSArray *)accountBadges;
+@end
+
+@implementation SCIMockEmployeeFragment
+- (NSString *)graphQLID {
+    return @"90010000000001";
+}
+- (NSArray *)accountBadges {
+    return @[];
+}
+@end
+
+@interface SCIMockAvailabilityModel : NSObject
+- (id)asIGUserIsEmployeeOrTestUserFragment;
+@end
+
+@implementation SCIMockAvailabilityModel
+- (id)asIGUserIsEmployeeOrTestUserFragment {
+    return [SCIMockEmployeeFragment new];
+}
+@end
+
+static id new_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SEL _cmd) {
+    return [SCIMockAvailabilityModel new];
+}
+
+static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
+    return [SCIMockEmployeeFragment new];
+}
+
 static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
     NSUInteger installed = 0;
+
+    static BOOL didHookGraphQLEmployee = NO;
+    if (!didHookGraphQLEmployee) {
+        Class igUserCls = NSClassFromString(@"IGUser");
+        if (igUserCls) {
+            SEL sel1 = NSSelectorFromString(@"asIGInternalSettingsAvailabilityFragmentImmutableModel");
+            if (class_getInstanceMethod(igUserCls, sel1)) {
+                IMP orig = NULL;
+                MSHookMessageEx(igUserCls, sel1, (IMP)new_asIGInternalSettingsAvailabilityFragmentImmutableModel, &orig);
+                installed++;
+            }
+            SEL sel2 = NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment");
+            if (class_getInstanceMethod(igUserCls, sel2)) {
+                IMP orig = NULL;
+                MSHookMessageEx(igUserCls, sel2, (IMP)new_asIGUserIsEmployeeOrTestUserFragment, &orig);
+                installed++;
+            }
+            didHookGraphQLEmployee = YES;
+        }
+    }
 
     // Master local employee gate (FBSharedFramework). This is the predicate the
     // [ig-only]/[internal-only] action checkers consult and the dogfood entry
