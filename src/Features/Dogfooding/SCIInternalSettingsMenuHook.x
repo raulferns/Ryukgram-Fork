@@ -10,6 +10,7 @@
 #import <os/log.h>
 #import "SCIInternalGatePrefs.h"
 #import "../../Utils.h"
+#import "SCIInternalMenusForce.h"
 
 #define ILOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] InternalMenu " fmt, ##__VA_ARGS__)
 
@@ -146,7 +147,8 @@ static void sci_didSelectRow(id self, SEL _cmd, id tableView, id indexPath) {
     if (cell && SCICellContainsText(cell, @"Internal Settings")) {
         ILOG("intercepted Internal Settings tap");
         if ([SCIUtils getBoolPref:@"sci_internal_menus"]) {
-            ILOG("Internal & Dogfood Menus is ON, letting native didSelectRow run");
+            ILOG("Internal & Dogfood Menus is ON, calling SCIInternalMenusForceApplyNow() and letting native didSelectRow run");
+            (void)SCIInternalMenusForceApplyNow();
         } else {
             Class runtimeCls = NSClassFromString(@"SCIDogfoodObjectRuntime");
             if (runtimeCls) {

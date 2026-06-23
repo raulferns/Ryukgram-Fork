@@ -19,6 +19,47 @@
 #import "../../Utils.h"
 #import "../Gating/SCIRuntimeBoolForce.h"
 #import "SCIInternalMenusForce.h"
+#import "../../../modules/fishhook/fishhook.h"
+#import <dlfcn.h>
+
+typedef void *(*XPluginsDataFunc)(int paramID, ...);
+typedef void *(*XPluginsGetDataFuncOrAbortFn)(int paramID);
+typedef void *(*XPluginsGetFunctionPtrFromIDFn)(int socketID, int arg2);
+
+static XPluginsGetDataFuncOrAbortFn orig_XPluginsGetDataFuncOrAbort = NULL;
+static XPluginsGetFunctionPtrFromIDFn orig_XPluginsGetFunctionPtrFromID = NULL;
+
+static void dummy_socket_func(void *a __unused, void *b __unused, void *c __unused, void *d __unused) {
+    // No-op to prevent crashes if a socket resolves to NULL
+}
+
+static void *custom_XPluginsGetDataFunc(int paramID, ...) {
+    // 1681030145 is 0x64327C01
+    if (paramID == 1681030145) {
+        // Return a static buffer containing a mock socket ID (e.g. 117) at offset 4
+        static uint32_t mock_socket_config[2] = { 0, 117 };
+        return &mock_socket_config;
+    }
+    if (orig_XPluginsGetDataFuncOrAbort) {
+        XPluginsDataFunc orig_func = (XPluginsDataFunc)orig_XPluginsGetDataFuncOrAbort(paramID);
+        if (orig_func) {
+            return orig_func(paramID);
+        }
+    }
+    return NULL;
+}
+
+static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
+    void *res = NULL;
+    if (orig_XPluginsGetFunctionPtrFromID) {
+        res = orig_XPluginsGetFunctionPtrFromID(socketID, arg2);
+    }
+    if (!res) {
+        // Return a dummy function to prevent abort/crash
+        return (void *)dummy_socket_func;
+    }
+    return res;
+}
 
 @interface SCIMockEmployeeFragment : NSObject
 - (NSString *)graphQLID;
@@ -73,6 +114,22 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
             }
             didHookGraphQLEmployee = YES;
         }
+    }
+
+    static BOOL didHookXPlugins = NO;
+    if (!didHookXPlugins) {
+        struct rebinding rebs[2];
+        rebs[0].name = "XPluginsGetDataFuncOrAbort";
+        rebs[0].replacement = (void *)custom_XPluginsGetDataFunc;
+        rebs[0].replaced = (void **)&orig_XPluginsGetDataFuncOrAbort;
+
+        rebs[1].name = "XPluginsGetFunctionPtrFromID";
+        rebs[1].replacement = (void *)custom_XPluginsGetFunctionPtrFromID;
+        rebs[1].replaced = (void **)&orig_XPluginsGetFunctionPtrFromID;
+
+        rebind_symbols(rebs, 2);
+        didHookXPlugins = YES;
+        installed++;
     }
 
     // Master local employee gate (FBSharedFramework). This is the predicate the
