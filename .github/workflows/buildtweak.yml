@@ -26,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: main
+          submodules: recursive
 
       - name: Verify Xcode 26.2 toolchain
         run: |
