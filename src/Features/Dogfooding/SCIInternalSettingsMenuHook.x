@@ -122,6 +122,37 @@ static long sci_availabilityStatus(id self, SEL _cmd) {
     return sOrigAvailabilityStatus ? sOrigAvailabilityStatus(self, _cmd) : 2;
 }
 
+static BOOL SCICellContainsText(UIView *view, NSString *text) {
+    if ([view isKindOfClass:NSClassFromString(@"UILabel")]) {
+        UILabel *lbl = (UILabel *)view;
+        if ([lbl.text containsString:text]) return YES;
+    }
+    for (UIView *sub in view.subviews) {
+        if (SCICellContainsText(sub, text)) return YES;
+    }
+    return NO;
+}
+
+static void (*sOrigDidSelectRow)(id, SEL, id, id) = NULL;
+static void sci_didSelectRow(id self, SEL _cmd, id tableView, id indexPath) {
+    UITableViewCell *cell = nil;
+    @try {
+        if ([tableView respondsToSelector:@selector(cellForRowAtIndexPath:)]) {
+            cell = [tableView cellForRowAtIndexPath:indexPath];
+        }
+    } @catch (__unused id e) {}
+    
+    if (cell && SCICellContainsText(cell, @"Internal Settings")) {
+        ILOG("intercepted Internal Settings tap");
+        Class runtimeCls = NSClassFromString(@"SCIDogfoodObjectRuntime");
+        if (runtimeCls) {
+            BOOL ok = ((BOOL(*)(id, SEL))objc_msgSend)(runtimeCls, NSSelectorFromString(@"tryOpenNativeDogfoodSettings"));
+            if (ok) return;
+        }
+    }
+    if (sOrigDidSelectRow) sOrigDidSelectRow(self, _cmd, tableView, indexPath);
+}
+
 static void SCIHookBoolGetter(Class C, SEL sel, IMP replacement, IMP *orig) {
     if (!C || !sel || *orig) return;
     if (!class_getInstanceMethod(C, sel)) return;
@@ -166,6 +197,14 @@ static void SCIInstallInternalMenuHook(void) {
         MSHookMessageEx(C, statusSel, (IMP)sci_availabilityStatus, &orig);
         sOrigAvailabilityStatus = (long (*)(id, SEL))orig;
         ILOG("availability status hook %s", sOrigAvailabilityStatus ? "hooked" : "failed");
+    }
+
+    SEL selectSel = @selector(tableView:didSelectRowAtIndexPath:);
+    if (class_getInstanceMethod(C, selectSel) && !sOrigDidSelectRow) {
+        IMP orig = NULL;
+        MSHookMessageEx(C, selectSel, (IMP)sci_didSelectRow, &orig);
+        sOrigDidSelectRow = (void (*)(id, SEL, id, id))orig;
+        ILOG("didSelectRow hook registered");
     }
 }
 
