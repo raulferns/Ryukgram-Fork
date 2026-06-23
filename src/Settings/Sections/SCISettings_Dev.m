@@ -109,7 +109,7 @@
 														if(top)[top presentViewController:a animated:YES completion:nil];
 													}
 												],
-												[SCISetting switchCellWithTitle:SCILocalized(@"Show Internal Settings menu") subtitle:SCILocalized(@"Forces showInternalSettings=YES in IGBugReportMenuViewController (shake-to-report menu). Shake device to open it.") defaultsKey:@"sci_force_internal_settings_menu" requiresRestart:NO],
+												[SCISetting switchCellWithTitle:SCILocalized(@"Show Internal Settings menu") subtitle:SCILocalized(@"Hooks IGBugReportMenuViewController init and forces the native showInternalSettings flags. Shake device to open it.") defaultsKey:@"sci_force_internal_settings_menu" requiresRestart:NO],
 												[SCISetting switchCellWithTitle:SCILocalized(@"└ also when logged out") subtitle:SCILocalized(@"Also forces showLoggedOutInternalSettings=YES") defaultsKey:@"sci_force_internal_settings_loggedout" requiresRestart:NO],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Auto-apply on launch (native)") subtitle:SCILocalized(@"Re-applies a few seconds after login") defaultsKey:@"sci_apply_internal_native" requiresRestart:YES],
 												[SCISetting switchCellWithTitle:SCILocalized(@"Enable debug footer") subtitle:SCILocalized(@"Gateway to internal/debug menus (applied by the button above)") defaultsKey:@"sci_apply_internal_native" requiresRestart:YES],
@@ -131,8 +131,8 @@
 														if(![r hasPrefix:@"opened"] && ![r hasPrefix:@"presented"]){ UIAlertController *a=[UIAlertController alertControllerWithTitle:SCILocalized(@"Internal menu") message:r preferredStyle:UIAlertControllerStyleAlert]; [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]]; if(top)[top presentViewController:a animated:YES completion:nil]; }
 													}
 												],
-												[SCISetting buttonCellWithTitle:SCILocalized(@"Open Dogfooding Settings VC")
-													   subtitle:SCILocalized(@"Best-effort: constructs the internal settings VC directly")
+												[SCISetting buttonCellWithTitle:SCILocalized(@"Open Dogfooding Settings (openWithConfig)")
+													   subtitle:SCILocalized(@"Validated native path: IGDogfoodingSettings openWithConfig using an empty config object")
 													       icon:[SCISymbol symbolWithIGName:@"toolbox" fallback:@"wrench.and.screwdriver"]
 													     action:^(void) {
 														NSString *r = [SCIInternalMenusLauncher openDogfoodingSettingsVC];

@@ -39,6 +39,8 @@
 	swapSlot.disabled = disabled;
 
 	return @{
+        @"sci_force_internal_settings_loggedout": @NO,
+        @"sci_force_internal_settings_menu": @NO,
 		@"header": SCILocalized(@"Enhanced downloads"),
 		@"footer": footer,
 		@"rows": @[toggle, videoQuality, photoQuality, advToggle, swapSlot]

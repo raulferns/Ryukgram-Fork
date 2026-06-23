@@ -40,3 +40,4 @@ endif
 CCFLAGS += -std=c++11
 
 include $(THEOS_MAKE_PATH)/tweak.mk
+RyukGram_FILES += src/Features/Dogfooding/SCIIGInternalSettingsMenuGate.x

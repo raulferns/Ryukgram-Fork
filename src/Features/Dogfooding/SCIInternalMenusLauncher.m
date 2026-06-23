@@ -59,11 +59,11 @@
 //   -[IGDogfoodingSettingsViewController initWithConfig:userSession:]  (fallback)
 //       classe Swift registrada: _TtC20IGDogfoodingSettings34IGDogfoodingSettingsViewController
 //   IGDogfoodingSettingsConfig: instanceStart=8 instanceSize=8, 0 ivars ->
-//       [[cls alloc] init] é um config vazio VÁLIDO. O disassemble do init
-//       designado (0x10684fa10) mostra apenas swift_retain(config), swift_retain
-//       (userSession) e repasse ao init Swift real (0x10500baa0), que faz
-//       str x0,[self,#cfgIvar] / str userSession,[self,#sessIvar] e NUNCA
-//       faz ldr [config,#off] -> ele não lê nenhum campo do config.
+//       [[cls alloc] init] é um config vazio VÁLIDO. Disassembly via Capstone/llvm-objdump of initWithConfig:userSession:
+//       (0x10684fa10) shows retain(config), retain(userSession), then transfer
+//       to Swift init storage. ObjC metadata shows IGDogfoodingSettingsConfig
+//       has instanceSize=8 and zero ivars/methods/properties, so [[alloc] init]
+//       is the expected empty config object.
 //
 // Sideload-safe: só chamada ObjC direta (NSClassFromString+alloc/init+msgSend),
 // nada de inline patch / fishhook. Mesmo perfil do opener do FB.
@@ -72,8 +72,15 @@
     if (!session) return @"no live user session (open after login)";
 
     Class cfgCls = NSClassFromString(@"IGDogfoodingSettingsConfig");
+    if (!cfgCls) return @"IGDogfoodingSettingsConfig not found in this build";
+
     id config = nil;
-    if (cfgCls) { @try { config = [[cfgCls alloc] init]; } @catch (id e) { config = nil; } }
+    @try {
+        config = [[cfgCls alloc] init];
+    } @catch (id e) {
+        return [NSString stringWithFormat:@"config init threw: %@", e];
+    }
+    if (!config) return @"IGDogfoodingSettingsConfig init returned nil";
 
     UIViewController *top = [self topVC];
 
