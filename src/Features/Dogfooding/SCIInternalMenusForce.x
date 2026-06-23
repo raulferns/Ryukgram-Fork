@@ -55,8 +55,11 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
     if (orig_XPluginsGetFunctionPtrFromID) {
         res = orig_XPluginsGetFunctionPtrFromID(socketID, arg2);
     }
-    if (!res) {
-        // Return a dummy function to prevent abort/crash
+    if (res) {
+        NSLog(@"[RyukGram] XPluginsGetFunctionPtrFromID socketID=%d -> %p", socketID, res);
+    }
+    if (!res && socketID == 117) {
+        // Return a dummy function to prevent abort/crash only for our mock socket ID
         return (void *)dummy_socket_func;
     }
     return res;
