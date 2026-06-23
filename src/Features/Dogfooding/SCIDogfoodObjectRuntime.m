@@ -490,11 +490,28 @@ static Class SCIFindSwiftClass(NSString *name) {
                 }
                 if (properties) free(properties);
 
+                NSMutableArray *ivarsArray = [NSMutableArray array];
+                Ivar *ivarList = class_copyIvarList(cls, &mc);
+                for (unsigned int j = 0; j < mc; j++) {
+                    const char *name = ivar_getName(ivarList[j]);
+                    const char *type = ivar_getTypeEncoding(ivarList[j]);
+                    ptrdiff_t offset = ivar_getOffset(ivarList[j]);
+                    [ivarsArray addObject:@{
+                        @"name": name ? @(name) : @"",
+                        @"type": type ? @(type) : @"",
+                        @"offset": @(offset)
+                    }];
+                }
+                if (ivarList) free(ivarList);
+
+                Class superclass = class_getSuperclass(cls);
                 NSDictionary *d = @{
                     @"class": className,
+                    @"superclass": superclass ? NSStringFromClass(superclass) : @"None",
                     @"methods": methodsArray,
                     @"classMethods": classMethodsArray,
-                    @"properties": propertiesArray
+                    @"properties": propertiesArray,
+                    @"ivars": ivarsArray
                 };
                 [results addObject:d];
                 [self noteAction:@"dump-dogfooding" status:className detail:d];
@@ -512,6 +529,16 @@ static Class SCIFindSwiftClass(NSString *name) {
             NSLog(@"[RyukGram] Failed to write dump file: %@", ex);
         }
     });
+}
+
+static void SCISafeSetIvar(id obj, NSString *propName, ptrdiff_t offset, id value) {
+    if (!obj) return;
+    @try {
+        [obj setValue:value forKey:propName];
+    } @catch (id ex) {
+        void **ptr = (void **)((char *)(__bridge void *)obj + offset);
+        *ptr = (__bridge_retained void *)value;
+    }
 }
 
 + (id)bestDogfoodSettingsConfig {
@@ -535,19 +562,19 @@ static Class SCIFindSwiftClass(NSString *name) {
     if (configCls && sectionCls && itemCls) {
         @try {
             id item1 = [[itemCls alloc] init];
-            [item1 setValue:@"Toggle FLEX" forKey:@"title"];
-            [item1 setValue:@YES forKey:@"value"];
+            SCISafeSetIvar(item1, @"title", 16, @"Toggle FLEX");
+            SCISafeSetIvar(item1, @"value", 32, @YES);
             
             id item2 = [[itemCls alloc] init];
-            [item2 setValue:@"Logged Analytics Events" forKey:@"title"];
-            [item2 setValue:@NO forKey:@"value"];
+            SCISafeSetIvar(item2, @"title", 16, @"Logged Analytics Events");
+            SCISafeSetIvar(item2, @"value", 32, @NO);
             
             id section = [[sectionCls alloc] init];
-            [section setValue:@"FLEX & Analytics" forKey:@"title"];
-            [section setValue:@[item1, item2] forKey:@"items"];
+            SCISafeSetIvar(section, @"title", 16, @"FLEX & Analytics");
+            SCISafeSetIvar(section, @"items", 24, @[item1, item2]);
             
             cfg = [[configCls alloc] init];
-            [cfg setValue:@[section] forKey:@"sections"];
+            SCISafeSetIvar(cfg, @"sections", 24, @[section]);
             
             if (cfg) {
                 sSCICapturedDogfoodSettingsConfig = cfg;
@@ -555,7 +582,9 @@ static Class SCIFindSwiftClass(NSString *name) {
                 return cfg;
             }
         } @catch (id ex) {
-            [self noteAction:@"fabricate config" status:@"exception" detail:ex];
+            NSString *reason = [NSString stringWithFormat:@"Fabrication exception: %@", ex];
+            [self noteAction:@"fabricate config" status:@"exception" detail:reason];
+            NSLog(@"[RyukGram] %@", reason);
         }
     }
     return nil;
