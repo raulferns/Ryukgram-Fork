@@ -68,33 +68,8 @@ NSString *SCIInternalMenusForceApplyNow(void) {
 
 %ctor {
     @autoreleasepool {
-        // Safe post-launch initialization to prevent pthread_once / FBAnalytics watchdog deadlock.
-        if ([SCIUtils getBoolPref:@"sci_internal_menus"]) {
-            __block id _sciTok = [[NSNotificationCenter defaultCenter]
-                addObserverForName:@"UIApplicationDidBecomeActiveNotification"
-                            object:nil
-                             queue:[NSOperationQueue mainQueue]
-                        usingBlock:^(__unused NSNotification *note) {
-                if (_sciTok) { [[NSNotificationCenter defaultCenter] removeObserver:_sciTok]; _sciTok = nil; }
-                SCIInternalMenusForceApplyNow();
-                
-                // Also trigger employee defaults hooks automatically post-launch if master employee gate is enabled
-                Class empDefaultsCls = NSClassFromString(@"SCIEmployeeDefaults");
-                if (empDefaultsCls) {
-                    #pragma clang diagnostic push
-                    #pragma clang diagnostic ignored "-Wundeclared-selector"
-                    [empDefaultsCls performSelector:@selector(installHooksIfNeeded)];
-                    
-                    Class runtimeCls = NSClassFromString(@"SCIDogfoodObjectRuntime");
-                    if (runtimeCls) {
-                        id session = [runtimeCls performSelector:@selector(activeUserSession)];
-                        if (session) {
-                            [empDefaultsCls performSelector:@selector(applyToUserSession:source:) withObject:session withObject:@"SCIInternalMenusForce.%ctor"];
-                        }
-                    }
-                    #pragma clang diagnostic pop
-                }
-            }];
-        }
+        // Deliberately no-op. Persistence stays in NSUserDefaults, but a persisted
+        // ON state must not execute during Instagram scene-create. Execution occurs
+        // only when the settings toggle is changed to ON in the current session.
     }
 }
