@@ -135,21 +135,8 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
 
 static void (*sOrigDidSelectRow)(id, SEL, id, id) = NULL;
 static void sci_didSelectRow(id self, SEL _cmd, id tableView, id indexPath) {
-    UITableViewCell *cell = nil;
-    @try {
-        if ([tableView respondsToSelector:@selector(cellForRowAtIndexPath:)]) {
-            cell = [tableView cellForRowAtIndexPath:indexPath];
-        }
-    } @catch (__unused id e) {}
-    
-    if (cell && SCICellContainsText(cell, @"Internal Settings")) {
-        ILOG("intercepted Internal Settings tap");
-        Class runtimeCls = NSClassFromString(@"SCIDogfoodObjectRuntime");
-        if (runtimeCls) {
-            BOOL ok = ((BOOL(*)(id, SEL))objc_msgSend)(runtimeCls, NSSelectorFromString(@"tryOpenNativeDogfoodSettings"));
-            if (ok) return;
-        }
-    }
+    // Deliberately do not intercept "Internal Settings" cell tap with custom mock configurations.
+    // This allows Instagram's native didSelectRowAtIndexPath: code to run and launch the native internal settings.
     if (sOrigDidSelectRow) sOrigDidSelectRow(self, _cmd, tableView, indexPath);
 }
 
