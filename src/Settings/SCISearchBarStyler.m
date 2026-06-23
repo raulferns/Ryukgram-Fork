@@ -31,9 +31,7 @@
 	searchBar.backgroundColor = UIColor.clearColor;
 
 	UITextField *field = searchBar.searchTextField;
-	field.borderStyle = UITextBorderStyleNone;
-	field.background = nil;
-	field.disabledBackground = nil;
+	field.borderStyle = UITextBorderStyleRoundedRect;
 	field.backgroundColor = nil;
 	field.layer.backgroundColor = nil;
 	field.layer.cornerRadius = 0.0;
@@ -44,8 +42,7 @@
 	if (!searchBar) return;
 
 	if ([self shouldUseNativeGlass]) {
-		// iOS 26 owns the collapsible/morphing search chrome. Do not add a second
-		// custom field surface on top of the native presentation.
+		[self resetSearchBar:searchBar];
 		return;
 	}
 

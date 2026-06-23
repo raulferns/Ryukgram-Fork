@@ -7,7 +7,6 @@
 #import "../SCIImageCache.h"
 #import "../Tweak.h"
 #import "../UI/SCIColorPicker.h"
-#import "../UI/SCIOptionSheet.h"
 
 static char kSCIRowKey;
 
@@ -110,10 +109,6 @@ static BOOL SCISettingsScanSelectedMenuTitle(UIMenu *menu, NSString **firstTitle
 		if (![el isKindOfClass:UICommand.class]) continue;
 		UICommand *cmd = (UICommand *)el;
 		if (firstTitle && !(*firstTitle).length && cmd.title.length) *firstTitle = cmd.title;
-		if (cmd.state == UIMenuElementStateOn && cmd.title.length) {
-			if (matchedTitle) *matchedTitle = cmd.title;
-			return YES;
-		}
 		NSDictionary *props = [cmd.propertyList isKindOfClass:NSDictionary.class] ? cmd.propertyList : nil;
 		NSString *key = [props[@"defaultsKey"] isKindOfClass:NSString.class] ? props[@"defaultsKey"] : nil;
 		NSString *value = [props[@"value"] isKindOfClass:NSString.class] ? props[@"value"] : nil;
@@ -146,14 +141,15 @@ static UIImage *SCISettingsScaledTemplateBundleImage(NSString *name, CGSize maxS
 	if (size.width <= 0.0 || size.height <= 0.0) return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 	CGFloat ratio = MIN(maxSize.width / size.width, maxSize.height / size.height);
 	if (ratio <= 0.0) ratio = 1.0;
-	CGSize target = CGSizeMake(floor(size.width * ratio), floor(size.height * ratio));
-	CGRect rect = CGRectMake((maxSize.width - target.width) * 0.5, (maxSize.height - target.height) * 0.5, target.width, target.height);
+	// Downscale and upscale intentionally here. The closed accessory is a preview,
+	// not the source asset; it must visually fill the same right-side slot every time.
+	CGSize target = CGSizeMake(ceil(size.width * ratio), ceil(size.height * ratio));
 	UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
 	fmt.opaque = NO;
 	fmt.scale = UIScreen.mainScreen.scale;
-	UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:maxSize format:fmt];
+	UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:target format:fmt];
 	UIImage *scaled = [renderer imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull ctx) {
-		[img drawInRect:rect];
+		[img drawInRect:CGRectMake(0.0, 0.0, target.width, target.height)];
 	}];
 	return [scaled imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 }
@@ -433,8 +429,8 @@ static UIImage *SCISettingsScaledTemplateBundleImage(NSString *name, CGSize maxS
 	sc.searchBar.placeholder = SCILocalized(@"settings.search.placeholder");
 	self.searchController = sc;
 	self.navigationItem.searchController = sc;
-	SCIUIKit26ConfigureSearchNavigationItem(self.navigationItem);
-	self.definesPresentationContext = YES;
+	self.navigationItem.hidesSearchBarWhenScrolling = NO;
+	self.definesPresentationContext = ![SCIUtils getBoolPref:@"liquid_glass_buttons"];
 	self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(sciDismissSettings)];
 	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"globe"] style:UIBarButtonItemStylePlain target:self action:@selector(sciPresentLanguagePicker)];
 }
@@ -509,7 +505,14 @@ static UIImage *SCISettingsScaledTemplateBundleImage(NSString *name, CGSize maxS
 
 - (void)willPresentSearchController:(UISearchController *)sc { self.searchBarStyled = NO; [self sciStyleSearchBar]; }
 
-- (void)didPresentSearchController:(UISearchController *)sc { self.searchBarStyled = NO; [self sciStyleSearchBar]; }
+- (void)didPresentSearchController:(UISearchController *)sc {
+	self.searchBarStyled = NO;
+	[self sciStyleSearchBar];
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		self.searchBarStyled = NO;
+		[self sciStyleSearchBar];
+	});
+}
 
 - (void)sciShowFirstRunAlertIfNeeded {
 	NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
@@ -714,38 +717,27 @@ static UIImage *SCISettingsScaledTemplateBundleImage(NSString *name, CGSize maxS
 			b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
 			UIMenu *resolvedMenu = [row menuForButton:b];
 			BOOL isWordmarkMenu = SCIMenuContainsDefaultsKey(resolvedMenu, @"sci_ig_wordmark_variant");
-			NSString *selectedTitle = SCISettingsSelectedMenuTitle(resolvedMenu);
-
+			SCIUIKit26ConfigureButton(b);
+			UIButtonConfiguration *bc = b.configuration ?: UIButtonConfiguration.plainButtonConfiguration;
+			bc.contentInsets = NSDirectionalEdgeInsetsMake(6.0, 10.0, 6.0, 10.0);
+			bc.titleLineBreakMode = NSLineBreakByTruncatingTail;
 			if (isWordmarkMenu) {
-				// UIAction image-only menus render wordmarks as tiny glyphs inside a huge
-				// native menu. Keep the closed accessory compact and open the dedicated
-				// vertical wordmark sheet instead.
-				b = [UIButton buttonWithType:UIButtonTypeCustom];
-				b.enabled = !row.disabled;
-				b.tintColor = UIColor.labelColor;
 				NSString *variant = [NSUserDefaults.standardUserDefaults stringForKey:@"sci_ig_wordmark_variant"] ?: @"off";
-				UIImage *img = SCISettingsScaledTemplateBundleImage(SCISettingsWordmarkImageNameForValue(variant), CGSizeMake(96.0, 24.0));
-				[b setImage:img forState:UIControlStateNormal];
-				b.accessibilityLabel = SCISettingsWordmarkDisplayTitleForValue(variant, SCILocalized(@"Default"));
-				b.frame = CGRectMake(0.0, 0.0, 112.0, 34.0);
-				b.imageView.contentMode = UIViewContentModeScaleAspectFit;
-				objc_setAssociatedObject(b, &kSCIRowKey, row, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-				[b addTarget:self action:@selector(menuButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
-				b.showsMenuAsPrimaryAction = NO;
-				b.menu = nil;
+				bc.title = nil;
+				bc.image = SCISettingsScaledTemplateBundleImage(SCISettingsWordmarkImageNameForValue(variant), CGSizeMake(118.0, 28.0));
+				bc.imagePadding = 0.0;
+				bc.baseForegroundColor = UIColor.labelColor;
 			} else {
-				SCIUIKit26ConfigureButton(b);
-				UIButtonConfiguration *bc = b.configuration ?: UIButtonConfiguration.plainButtonConfiguration;
-				bc.contentInsets = NSDirectionalEdgeInsetsMake(7.0, 11.0, 7.0, 11.0);
-				bc.titleLineBreakMode = NSLineBreakByTruncatingTail;
+				NSString *selectedTitle = SCISettingsSelectedMenuTitle(resolvedMenu);
 				bc.title = selectedTitle.length ? selectedTitle : SCILocalized(@"Default");
 				bc.image = nil;
-				b.configuration = bc;
-				b.menu = resolvedMenu;
-				b.showsMenuAsPrimaryAction = YES;
-				if (@available(iOS 15.0, *)) b.changesSelectionAsPrimaryAction = NO;
-				[b sizeToFit];
+				bc.indicator = UIButtonConfigurationIndicatorPopup;
+				if (@available(iOS 15.0, *)) b.changesSelectionAsPrimaryAction = YES;
 			}
+			b.configuration = bc;
+			b.menu = resolvedMenu;
+			b.showsMenuAsPrimaryAction = YES;
+			[b sizeToFit];
 			cell.accessoryView = b;
 			cell.selectionStyle = UITableViewCellSelectionStyleNone;
 			break;
@@ -830,6 +822,7 @@ static UIImage *SCISettingsScaledTemplateBundleImage(NSString *name, CGSize maxS
 	[NSUserDefaults.standardUserDefaults setDouble:sender.value forKey:row.defaultsKey];
 	[self reloadCellForView:sender animated:NO];
 }
+
 
 - (void)menuChanged:(UICommand *)command {
 	NSDictionary *props = [command.propertyList isKindOfClass:NSDictionary.class] ? command.propertyList : nil;

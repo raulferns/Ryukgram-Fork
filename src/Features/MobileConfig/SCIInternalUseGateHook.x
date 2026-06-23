@@ -68,6 +68,43 @@ static void SCIAddRebind(struct rebinding *rbs, size_t *count, const char *symbo
     SCILOG("armed hard stub %{public}s", symbol);
 }
 
+// ── EasyGating: modo CALL-ORIG (espelha o stub_bool_i estável do MobileConfig) ──
+//
+// O hard-stub acima (mov w0,#1; ret) NÃO chama o orig. Para MobileConfig/Minos/MSGC
+// isso é estável (você confirmou: "libera tudo e não crasha"). Mas o
+// EasyGating*_Internal_DoNotUseOrMock CRASHA com hard-stub porque pular o orig pula
+// a inicialização preguiçosa/side-effects do gate. A correção é exatamente o que o
+// hook estável do MobileConfig internal-use bool faz em SCICSymbolStub.m (stub_bool_i):
+// CHAMAR o orig primeiro (deixa o framework rodar tudo), descartar o valor real e
+// retornar YES. ABI validada: retornam BOOL em w0; não há gate-id forçável nos args
+// (só default), então o force é global "libera tudo que passa" — mas seguro.
+typedef bool (*SCIEGBoolFn)(void*,void*,void*,void*,void*,void*,void*,void*);
+static SCIEGBoolFn orig_eg_internal = NULL;
+static SCIEGBoolFn orig_eg_auth     = NULL;
+static SCIEGBoolFn orig_eg_mcq      = NULL;
+
+static bool sci_eg_internal_repl(void*a0,void*a1,void*a2,void*a3,void*a4,void*a5,void*a6,void*a7){
+    if (orig_eg_internal) (void)orig_eg_internal(a0,a1,a2,a3,a4,a5,a6,a7); // side-effects do orig
+    return true;
+}
+static bool sci_eg_auth_repl(void*a0,void*a1,void*a2,void*a3,void*a4,void*a5,void*a6,void*a7){
+    if (orig_eg_auth) (void)orig_eg_auth(a0,a1,a2,a3,a4,a5,a6,a7);
+    return true;
+}
+static bool sci_eg_mcq_repl(void*a0,void*a1,void*a2,void*a3,void*a4,void*a5,void*a6,void*a7){
+    if (orig_eg_mcq) (void)orig_eg_mcq(a0,a1,a2,a3,a4,a5,a6,a7);
+    return true;
+}
+
+static void SCIAddRebindCallOrig(struct rebinding *rbs, size_t *count, const char *symbol, void *repl, void **origSlot) {
+    if (!symbol || !count || *count >= 16) return;
+    rbs[*count].name = symbol;
+    rbs[*count].replacement = repl;
+    rbs[*count].replaced = origSlot; // call-orig: fishhook preenche o orig
+    (*count)++;
+    SCILOG("armed call-orig stub %{public}s", symbol);
+}
+
 void SCIInstallMobileConfigInternalUseGateIfNeeded(void) {
     static BOOL done = NO;
     if (done) return;
@@ -105,9 +142,9 @@ void SCIInstallMobileConfigInternalUseGateIfNeeded(void) {
     if (forceInternalApp) SCIAddRebind(rbs, &count, "IGAppIsInstagramInternalAppsInstalledAndNotHiddenAfteriOS18");
     if (forceMinos)       SCIAddRebind(rbs, &count, "MEBIsMinosDogfoodMekEncryptionVersionEnabled");
 
-    if (forceEasyInternal) SCIAddRebind(rbs, &count, "EasyGatingGetBoolean_Internal_DoNotUseOrMock");
-    if (forceEasyAuth)     SCIAddRebind(rbs, &count, "EasyGatingGetBooleanUsingAuthDataContext_Internal_DoNotUseOrMock");
-    if (forceEasyMCQ)      SCIAddRebind(rbs, &count, "MCQEasyGatingGetBooleanInternalDoNotUseOrMock");
+    if (forceEasyInternal) SCIAddRebindCallOrig(rbs, &count, "EasyGatingGetBoolean_Internal_DoNotUseOrMock", (void *)sci_eg_internal_repl, (void **)&orig_eg_internal);
+    if (forceEasyAuth)     SCIAddRebindCallOrig(rbs, &count, "EasyGatingGetBooleanUsingAuthDataContext_Internal_DoNotUseOrMock", (void *)sci_eg_auth_repl, (void **)&orig_eg_auth);
+    if (forceEasyMCQ)      SCIAddRebindCallOrig(rbs, &count, "MCQEasyGatingGetBooleanInternalDoNotUseOrMock", (void *)sci_eg_mcq_repl, (void **)&orig_eg_mcq);
     // Current framework/exec validation does not show a stable EasyGatingPlatformGetBoolean import.
     // Leave the UI key crash-guarded but do not bind an unknown symbol.
     if (forceEasyPlatform) SCILOG("EasyGatingPlatform requested but no validated import; skip");

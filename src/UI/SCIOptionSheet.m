@@ -89,7 +89,7 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 
 @implementation SCIOptionSheetVC
 
-- (CGFloat)rowHeightForWordmark { return 52.0; }
+- (CGFloat)rowHeightForWordmark { return 44.0; }
 
 - (CGFloat)estimatedHeightForOption:(NSDictionary *)opt {
 	if (self.wordmarkMode) return [self rowHeightForWordmark];
@@ -109,12 +109,12 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 }
 
 - (CGSize)preferredSheetSize {
-	CGFloat width = self.wordmarkMode ? 260.0 : 300.0;
+	CGFloat width = self.wordmarkMode ? 260.0 : 328.0;
 	CGFloat rows = 0.0;
 	for (NSDictionary *opt in self.options) rows += [self estimatedHeightForOption:opt];
 	if (rows <= 0.0) rows = 72.0;
 	CGFloat inset = self.wordmarkMode ? 12.0 : 16.0;
-	CGFloat maxHeight = MIN(UIScreen.mainScreen.bounds.size.height - 180.0, self.wordmarkMode ? 300.0 : 420.0);
+	CGFloat maxHeight = MIN(UIScreen.mainScreen.bounds.size.height - 180.0, self.wordmarkMode ? 260.0 : 520.0);
 	CGFloat height = MIN(MAX(self.wordmarkMode ? 160.0 : 128.0, rows + inset), maxHeight);
 	return CGSizeMake(width, height);
 }
@@ -170,7 +170,8 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 			cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"wordmarkOpt"];
 			SCIUIKit26ConfigureTableCell(cell);
 			cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-			cell.preservesSuperviewLayoutMargins = YES;
+			cell.preservesSuperviewLayoutMargins = NO;
+			cell.contentView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(0.0, 6.0, 0.0, 6.0);
 
 			UIImageView *preview = [[UIImageView alloc] initWithFrame:CGRectZero];
 			preview.tag = 9001;
@@ -184,10 +185,10 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 
 			[NSLayoutConstraint activateConstraints:@[
 				[preview.leadingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.leadingAnchor],
-				[preview.trailingAnchor constraintLessThanOrEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor constant:-6.0],
+				[preview.trailingAnchor constraintLessThanOrEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor],
 				[preview.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-				[preview.widthAnchor constraintEqualToConstant:116.0],
-				[preview.heightAnchor constraintEqualToConstant:28.0],
+				[preview.widthAnchor constraintEqualToConstant:82.0],
+				[preview.heightAnchor constraintEqualToConstant:22.0],
 			]];
 		}
 		cell.contentConfiguration = nil;
@@ -195,7 +196,7 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 		UIImageView *preview = (UIImageView *)[cell.contentView viewWithTag:9001];
 		preview.image = SCIOptionSheetWordmarkPreviewImage(image);
 		preview.tintColor = UIColor.labelColor;
-		SCIUIKit26ApplyTableCellSelectionTint(cell, NO);
+		SCIUIKit26ApplyTableCellSelectionTint(cell, selected);
 		return cell;
 	}
 
@@ -285,15 +286,11 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 }
 
 + (BOOL)optionsAreWordmark:(NSArray<NSDictionary *> *)options fallbackKey:(NSString *)fallbackKey {
-	if ([fallbackKey isEqualToString:@"sci_ig_wordmark_variant"]) return YES;
-	for (NSDictionary *opt in options) {
-		id key = opt[@"defaultsKey"];
-		id imageName = opt[@"wordmarkImageName"];
-		if ([key isKindOfClass:NSString.class] && [key isEqualToString:@"sci_ig_wordmark_variant"]) return YES;
-		if ([imageName isKindOfClass:NSString.class] && [(NSString *)imageName length] > 0) return YES;
-	}
+	(void)options;
+	(void)fallbackKey;
 	return NO;
 }
+
 + (void)presentFrom:(UIViewController *)presenter title:(NSString *)title defaultsKey:(NSString *)defaultsKey options:(NSArray<NSDictionary<NSString *,NSString *> *> *)options onChange:(void (^)(NSString *))onChange {
 	if (!presenter || !options.count) return;
 	SCIOptionSheetVC *vc = [SCIOptionSheetVC new];
@@ -305,6 +302,7 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 	vc.onChange = onChange;
 	[self presentSheetVC:vc from:presenter sourceView:nil];
 }
+
 + (void)presentFrom:(UIViewController *)presenter title:(NSString *)title menu:(UIMenu *)menu onPick:(void (^)(UICommand *command))onPick {
 	NSArray *options = [self optionsFromMenu:menu prefix:nil];
 	if (!presenter || !options.count) return;

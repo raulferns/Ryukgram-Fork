@@ -101,26 +101,11 @@ static BOOL sciGroupInheritsSettingsLock(NSString *gid) {
                     from:(UIViewController *)presenter
               sourceView:(UIView *)sourceView {
     if (!contentVC) return;
-    __weak UIView *weakSource = sourceView;
+    (void)sourceView;
     [self runGated:groupID from:presenter then:^{
         SCILockedSurfaceNavigationController *nav = [[SCILockedSurfaceNavigationController alloc] initWithRootViewController:contentVC];
         nav.lockGroupID = groupID;
-        BOOL settingsSurface = [groupID isEqualToString:SCILockGroupSettings];
-        nav.modalPresentationStyle = settingsSurface ? UIModalPresentationPageSheet : UIModalPresentationFullScreen;
-        if (settingsSurface) {
-            nav.view.backgroundColor = UIColor.clearColor;
-            nav.view.opaque = NO;
-            contentVC.view.backgroundColor = UIColor.clearColor;
-            contentVC.view.opaque = NO;
-        }
-        if (settingsSurface && @available(iOS 15.0, *)) {
-            UISheetPresentationController *sheet = nav.sheetPresentationController;
-            sheet.detents = @[ UISheetPresentationControllerDetent.largeDetent ];
-            sheet.prefersGrabberVisible = NO;
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = YES;
-            sheet.prefersEdgeAttachedInCompactHeight = YES;
-            sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = NO;
-        }
+        nav.modalPresentationStyle = UIModalPresentationFullScreen;
         SCIUIKit26ApplyContainerBackgroundToViewController(nav);
         SCIConfigureNavigationChromeForGlass(contentVC);
         if (!contentVC.navigationItem.leftBarButtonItem
@@ -131,11 +116,9 @@ static BOOL sciGroupInheritsSettingsLock(NSString *gid) {
                                                                       action:@selector(closeTopMost:)];
             contentVC.navigationItem.leftBarButtonItem = close;
         }
-        UIViewController *top = presenter ?: [self topVC];
-        if (settingsSurface && weakSource && nav.popoverPresentationController) {
-            nav.popoverPresentationController.sourceView = weakSource;
-            nav.popoverPresentationController.sourceRect = weakSource.bounds;
-        }
+        // Guard attaches to the nav (its view hosts every pushed sub-page) so
+        // re-lock can cover inner pages too.
+        UIViewController *top = [self topVC];
         [top presentViewController:nav animated:YES completion:nil];
         [SCILockSurfaceGuard attachToVC:nav forGroup:groupID];
     }];
