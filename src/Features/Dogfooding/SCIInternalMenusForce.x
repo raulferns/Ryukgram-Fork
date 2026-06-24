@@ -66,6 +66,14 @@ static BOOL mock_return_yes(id self, SEL _cmd) {
     return YES;
 }
 
+static id mock_accountBadges(id self, SEL _cmd) {
+    return @[@"EMPLOYEE", @"employee", @"INTERNAL", @"internal", @"TEST_USER", @"test_user"];
+}
+
+static id mock_graphQLID(id self, SEL _cmd) {
+    return @"90010000000001"; // Guaranteed test user range
+}
+
 static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
     static Class mockCls = Nil;
     static dispatch_once_t onceToken;
@@ -76,6 +84,8 @@ static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
             if (mockCls) {
                 class_addMethod(mockCls, @selector(isEmployee), (IMP)mock_return_yes, "B@:");
                 class_addMethod(mockCls, @selector(isTestUser), (IMP)mock_return_yes, "B@:");
+                class_addMethod(mockCls, @selector(accountBadges), (IMP)mock_accountBadges, "@@:");
+                class_addMethod(mockCls, @selector(graphQLID), (IMP)mock_graphQLID, "@@:");
                 objc_registerClassPair(mockCls);
             }
         }

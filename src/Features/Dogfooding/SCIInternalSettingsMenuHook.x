@@ -68,16 +68,6 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
     return %orig;
 }
 
-- (id)initWithDeviceSession:(id)arg1 userSession:(id)arg2 reliabilityLogging:(id)arg3 navChain:(id)arg4 endpoint:(id)arg5 entryPoint:(long long)arg6 style:(long long)arg7 internalSettingsAvailabilityStatus:(long)arg8 showInternalSettings:(BOOL)arg9 showLoggedOutInternalSettings:(BOOL)arg10 showShakeToReportPreferenceToggle:(BOOL)arg11 {
-    if (SCIInternalMenuEnabled()) {
-        arg8 = 0;
-        arg9 = YES;
-        arg10 = SCIInternalMenuLoggedOutEnabled() ? YES : arg10;
-        arg11 = YES;
-    }
-    return %orig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
-}
-
 - (void)tableView:(id)tableView didSelectRowAtIndexPath:(id)indexPath {
     UITableViewCell *cell = nil;
     @try {
