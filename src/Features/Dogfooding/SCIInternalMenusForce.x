@@ -40,7 +40,7 @@ static uint64_t mock_true_func(void) {
 
 static void *custom_XPluginsGetDataFunc(int paramID) {
     // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
-    if (paramID == 1681030145) {
+    if (paramID == 1681030145 && [SCIUtils getBoolPref:@"sci_internal_menus"]) {
         NSLog(@"[RyukGram] XPluginsGetDataFuncOrAbort intercepted for gate 1681030145 -> returning mock_true_func");
         return (void *)mock_true_func;
     }
@@ -69,6 +69,8 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
 @interface SCIMockEmployeeFragment : NSObject
 - (NSString *)graphQLID;
 - (NSArray *)accountBadges;
+- (BOOL)isEmployee;
+- (BOOL)isTestUser;
 @end
 
 @implementation SCIMockEmployeeFragment
@@ -77,6 +79,12 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
 }
 - (NSArray *)accountBadges {
     return @[];
+}
+- (BOOL)isEmployee {
+    return YES;
+}
+- (BOOL)isTestUser {
+    return YES;
 }
 
 // Safe forwarding to prevent unrecognized selector crashes on mock fragment
@@ -151,7 +159,7 @@ static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
 }
 
 // ---------------------------------------------------------------------------
-#pragma mark - ObjC hook installation (called lazily, not at %ctor)
+#pragma mark - ObjC hook installation
 // ---------------------------------------------------------------------------
 
 static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
@@ -208,18 +216,7 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
 }
 
 NSString *SCIInternalMenusForceApplyNow(void) {
-    if (![SCIUtils getBoolPref:@"sci_internal_menus"]) {
-        return @"Internal & Dogfood Menus is OFF. Toggle state is persisted and no hook is active for this session.";
-    }
-
-    NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
-    if (installed == 0) {
-        return @"No internal menu hooks were installed. The target classes may not be loaded yet in this Instagram surface. Toggle remains persisted; flip it ON again after opening the relevant surface.";
-    }
-
-    return [NSString stringWithFormat:@"Applied %lu internal menu runtime hook%@ for this session from the toggle change. Nothing was executed during launch.",
-            (unsigned long)installed,
-            installed == 1 ? @"" : @"s"];
+    return @"Hooks are now installed at launch. No action needed on tap.";
 }
 
 // ---------------------------------------------------------------------------
@@ -239,5 +236,11 @@ NSString *SCIInternalMenusForceApplyNow(void) {
 
         int rc = rebind_symbols(rebs, 2);
         NSLog(@"[RyukGram] fishhook resolved bindings for XPlugins, rc = %d", rc);
+        
+        // Install ObjC hooks at launch to prevent deadlocks from MSHookMessageEx on the UI thread
+        if ([SCIUtils getBoolPref:@"sci_internal_menus"]) {
+            NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
+            NSLog(@"[RyukGram] Installed %lu internal menu runtime hooks at launch", (unsigned long)installed);
+        }
     }
 }
