@@ -62,89 +62,44 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
     return res;
 }
 
-// ---------------------------------------------------------------------------
-#pragma mark - GraphQL spoofing (ObjC hooks for IGUser employee fragment)
-// ---------------------------------------------------------------------------
-
-@interface SCIMockEmployeeFragment : NSObject
-- (NSString *)graphQLID;
-- (NSArray *)accountBadges;
-- (BOOL)isEmployee;
-- (BOOL)isTestUser;
-@end
-
-@implementation SCIMockEmployeeFragment
-- (NSString *)graphQLID {
-    return @"90010000000001";
-}
-- (NSArray *)accountBadges {
-    return @[];
-}
-- (BOOL)isEmployee {
-    return YES;
-}
-- (BOOL)isTestUser {
-    return YES;
-}
-
-- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
-    NSMethodSignature *sig = [super methodSignatureForSelector:aSelector];
-    if (!sig) {
-        NSString *selStr = NSStringFromSelector(aSelector);
-        NSUInteger count = 0;
-        for (NSUInteger i = 0; i < selStr.length; i++) {
-            if ([selStr characterAtIndex:i] == ':') count++;
+static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
+    static Class mockCls = Nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class baseCls = NSClassFromString(@"IGUserIsEmployeeOrTestUserFragmentImpl");
+        if (baseCls) {
+            mockCls = objc_allocateClassPair(baseCls, "SCIDynamicMockEmployeeFragment", 0);
+            if (mockCls) {
+                class_addMethod(mockCls, @selector(isEmployee), (IMP)mock_return_yes, "B@:");
+                class_addMethod(mockCls, @selector(isTestUser), (IMP)mock_return_yes, "B@:");
+                objc_registerClassPair(mockCls);
+            }
         }
-        NSMutableString *types = [NSMutableString stringWithString:@"@@:"];
-        for (NSUInteger i = 0; i < count; i++) [types appendString:@"@"];
-        sig = [NSMethodSignature signatureWithObjCTypes:[types UTF8String]];
-    }
-    return sig;
+    });
+    return mockCls ? [[mockCls alloc] init] : nil;
 }
-
-- (void)forwardInvocation:(NSInvocation *)anInvocation {
-    id nilVal = nil;
-    [anInvocation setReturnValue:&nilVal];
-}
-@end
-
-@interface SCIMockAvailabilityModel : NSObject
-- (id)asIGUserIsEmployeeOrTestUserFragment;
-@end
-
-@implementation SCIMockAvailabilityModel
-- (id)asIGUserIsEmployeeOrTestUserFragment {
-    return [SCIMockEmployeeFragment new];
-}
-
-- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
-    NSMethodSignature *sig = [super methodSignatureForSelector:aSelector];
-    if (!sig) {
-        NSString *selStr = NSStringFromSelector(aSelector);
-        NSUInteger count = 0;
-        for (NSUInteger i = 0; i < selStr.length; i++) {
-            if ([selStr characterAtIndex:i] == ':') count++;
-        }
-        NSMutableString *types = [NSMutableString stringWithString:@"@@:"];
-        for (NSUInteger i = 0; i < count; i++) [types appendString:@"@"];
-        sig = [NSMethodSignature signatureWithObjCTypes:[types UTF8String]];
-    }
-    return sig;
-}
-
-- (void)forwardInvocation:(NSInvocation *)anInvocation {
-    id nilVal = nil;
-    [anInvocation setReturnValue:&nilVal];
-}
-@end
 
 static id new_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SEL _cmd) {
-    return [SCIMockAvailabilityModel new];
+    static Class mockCls = Nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class baseCls = NSClassFromString(@"IGInternalSettingsAvailabilityFragmentImpl");
+        if (baseCls) {
+            mockCls = objc_allocateClassPair(baseCls, "SCIDynamicMockAvailabilityModel", 0);
+            if (mockCls) {
+                class_addMethod(mockCls, NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment"), (IMP)new_asIGUserIsEmployeeOrTestUserFragment, "@@:");
+                objc_registerClassPair(mockCls);
+            }
+        }
+    });
+    return mockCls ? [[mockCls alloc] init] : nil;
 }
 
-static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
-    return [SCIMockEmployeeFragment new];
+static BOOL mock_return_yes(id self, SEL _cmd) {
+    return YES;
 }
+
+
 
 // ---------------------------------------------------------------------------
 #pragma mark - ObjC hook installation
