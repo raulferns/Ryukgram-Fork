@@ -40,7 +40,7 @@ static uint64_t mock_true_func(void) {
 
 static void *custom_XPluginsGetDataFunc(int paramID) {
     // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
-    if (paramID == 1681030145 && [SCIUtils getBoolPref:@"sci_internal_menus"]) {
+    if (paramID == 1681030145 && [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"]) {
         NSLog(@"[RyukGram] XPluginsGetDataFuncOrAbort intercepted for gate 1681030145 -> returning mock_true_func");
         return (void *)mock_true_func;
     }
@@ -184,7 +184,7 @@ NSString *SCIInternalMenusForceApplyNow(void) {
         NSLog(@"[RyukGram] fishhook resolved bindings for XPlugins, rc = %d", rc);
         
         // Install ObjC hooks at launch to prevent deadlocks from MSHookMessageEx on the UI thread
-        if ([SCIUtils getBoolPref:@"sci_internal_menus"]) {
+        if ([SCIUtils getBoolPref:@"sci_force_internal_settings_menu"]) {
             NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
             NSLog(@"[RyukGram] Installed %lu internal menu runtime hooks at launch", (unsigned long)installed);
         }

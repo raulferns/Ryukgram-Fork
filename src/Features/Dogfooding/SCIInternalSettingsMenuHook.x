@@ -28,37 +28,6 @@ static Class SCIInternalMenuClass(void) {
 }
 
 
-
-static BOOL (*sOrigShowInternal)(id, SEL) = NULL;
-static BOOL sci_showInternal(id self, SEL _cmd) {
-    if (SCIInternalMenuEnabled()) return YES;
-    return sOrigShowInternal ? sOrigShowInternal(self, _cmd) : NO;
-}
-
-static BOOL (*sOrigShowLoggedOut)(id, SEL) = NULL;
-static BOOL sci_showLoggedOut(id self, SEL _cmd) {
-    if (SCIInternalMenuLoggedOutEnabled()) return YES;
-    return sOrigShowLoggedOut ? sOrigShowLoggedOut(self, _cmd) : NO;
-}
-
-static BOOL (*sOrigShowShake)(id, SEL) = NULL;
-static BOOL sci_showShake(id self, SEL _cmd) {
-    if (SCIInternalMenuEnabled()) return YES;
-    return sOrigShowShake ? sOrigShowShake(self, _cmd) : NO;
-}
-
-static BOOL (*sOrigShowAssistant)(id, SEL) = NULL;
-static BOOL sci_showAssistant(id self, SEL _cmd) {
-    if (SCIInternalMenuEnabled()) return YES;
-    return sOrigShowAssistant ? sOrigShowAssistant(self, _cmd) : NO;
-}
-
-static long (*sOrigAvailabilityStatus)(id, SEL) = NULL;
-static long sci_availabilityStatus(id self, SEL _cmd) {
-    if (SCIInternalMenuEnabled()) return 0;
-    return sOrigAvailabilityStatus ? sOrigAvailabilityStatus(self, _cmd) : 2;
-}
-
 static BOOL SCICellContainsText(UIView *view, NSString *text) {
     if ([view isKindOfClass:NSClassFromString(@"UILabel")]) {
         UILabel *lbl = (UILabel *)view;
@@ -70,8 +39,36 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
     return NO;
 }
 
-static void (*sOrigDidSelectRow)(id, SEL, id, id) = NULL;
-static void sci_didSelectRow(id self, SEL _cmd, id tableView, id indexPath) {
+%group SCIInternalMenuHooks
+
+%hook IGBugReportMenuViewController
+
+- (BOOL)showInternalSettings {
+    if (SCIInternalMenuEnabled()) return YES;
+    return %orig;
+}
+
+- (BOOL)showLoggedOutInternalSettings {
+    if (SCIInternalMenuLoggedOutEnabled()) return YES;
+    return %orig;
+}
+
+- (BOOL)showShakeToReportPreferenceToggle {
+    if (SCIInternalMenuEnabled()) return YES;
+    return %orig;
+}
+
+- (BOOL)showDogfoodingAssistant {
+    if (SCIInternalMenuEnabled()) return YES;
+    return %orig;
+}
+
+- (long)internalSettingsAvailabilityStatus {
+    if (SCIInternalMenuEnabled()) return 0;
+    return %orig;
+}
+
+- (void)tableView:(id)tableView didSelectRowAtIndexPath:(id)indexPath {
     UITableViewCell *cell = nil;
     @try {
         if ([tableView respondsToSelector:@selector(cellForRowAtIndexPath:)]) {
@@ -81,48 +78,27 @@ static void sci_didSelectRow(id self, SEL _cmd, id tableView, id indexPath) {
     
     if (cell && SCICellContainsText(cell, @"Internal Settings")) {
         ILOG("intercepted Internal Settings tap — applying ObjC employee hooks");
-        // Apply the ObjC employee-spoofing hooks lazily (lightweight, no fishhook).
-        // The heavy function hooks (MobileConfigGate, EmployeeCheck, SocketWrapper)
-        // are already installed at %ctor in SCIInternalMenusForce.x.
         (void)SCIInternalMenusForceApplyNow();
     }
-    if (sOrigDidSelectRow) sOrigDidSelectRow(self, _cmd, tableView, indexPath);
+    %orig;
 }
 
+%end
 
-static void SCIHookBoolGetter(Class C, SEL sel, IMP replacement, IMP *orig) {
-    if (!C || !sel || *orig) return;
-    if (!class_getInstanceMethod(C, sel)) return;
-    MSHookMessageEx(C, sel, replacement, orig);
-    ILOG("getter %{public}s %{public}s", sel_getName(sel), *orig ? "hooked" : "failed");
-}
+%end
 
 static void SCIInstallInternalMenuHook(void) {
-    Class C = SCIInternalMenuClass();
-    if (!C) { ILOG("IGBugReportMenuViewController not loaded"); return; }
-
-    SCIHookBoolGetter(C, @selector(showInternalSettings), (IMP)sci_showInternal, (IMP *)&sOrigShowInternal);
-    SCIHookBoolGetter(C, @selector(showLoggedOutInternalSettings), (IMP)sci_showLoggedOut, (IMP *)&sOrigShowLoggedOut);
-    SCIHookBoolGetter(C, @selector(showShakeToReportPreferenceToggle), (IMP)sci_showShake, (IMP *)&sOrigShowShake);
-    SCIHookBoolGetter(C, @selector(showDogfoodingAssistant), (IMP)sci_showAssistant, (IMP *)&sOrigShowAssistant);
-
-    SEL statusSel = NSSelectorFromString(@"internalSettingsAvailabilityStatus");
-    if (class_getInstanceMethod(C, statusSel) && !sOrigAvailabilityStatus) {
-        IMP orig = NULL;
-        MSHookMessageEx(C, statusSel, (IMP)sci_availabilityStatus, &orig);
-        sOrigAvailabilityStatus = (long (*)(id, SEL))orig;
-        ILOG("availability status hook %s", sOrigAvailabilityStatus ? "hooked" : "failed");
-    }
-
-    SEL selectSel = @selector(tableView:didSelectRowAtIndexPath:);
-    if (class_getInstanceMethod(C, selectSel) && !sOrigDidSelectRow) {
-        IMP orig = NULL;
-        MSHookMessageEx(C, selectSel, (IMP)sci_didSelectRow, &orig);
-        sOrigDidSelectRow = (void (*)(id, SEL, id, id))orig;
-        ILOG("didSelectRow hook registered");
-    }
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class C = SCIInternalMenuClass();
+        if (C) {
+            %init(SCIInternalMenuHooks, IGBugReportMenuViewController = C);
+            ILOG("IGBugReportMenuViewController hooked successfully via Logos.");
+        } else {
+            ILOG("IGBugReportMenuViewController not loaded yet.");
+        }
+    });
 }
-
 
 void SCIInstallInternalSettingsMenuHookIfNeeded(void) {
     if (!SCIInternalMenuEnabled()) return;
