@@ -37,6 +37,7 @@ static void SCIForceBugReportMenuIvars(id vc) {
     for (unsigned int i = 0; i < count; i++) {
         Ivar ivar = ivars[i];
         const char *name = ivar_getName(ivar);
+        const char *type = ivar_getTypeEncoding(ivar);
         if (!name) continue;
 
         ptrdiff_t offset = ivar_getOffset(ivar);
@@ -44,16 +45,24 @@ static void SCIForceBugReportMenuIvars(id vc) {
 
         if ([ivarName containsString:@"showInternalSettings"]) {
             *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
-            ILOG("forced ivar %{public}s to 1", name);
+            ILOG("forced ivar %{public}s (type: %s) to 1", name, type ? type : "unknown");
         } else if ([ivarName containsString:@"showLoggedOutInternalSettings"]) {
             *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
-            ILOG("forced ivar %{public}s to 1", name);
+            ILOG("forced ivar %{public}s (type: %s) to 1", name, type ? type : "unknown");
         } else if ([ivarName containsString:@"showShakeToReportPreferenceToggle"]) {
             *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
-            ILOG("forced ivar %{public}s to 1", name);
+            ILOG("forced ivar %{public}s (type: %s) to 1", name, type ? type : "unknown");
         } else if ([ivarName containsString:@"internalSettingsAvailabilityStatus"]) {
-            *((long *)((char *)(__bridge void *)vc + offset)) = 0;
-            ILOG("forced ivar %{public}s to 0", name);
+            if (type && (type[0] == 'q' || type[0] == 'Q' || type[0] == 'l' || type[0] == 'L')) {
+                *((long *)((char *)(__bridge void *)vc + offset)) = 0;
+            } else if (type && (type[0] == 'i' || type[0] == 'I')) {
+                *((int *)((char *)(__bridge void *)vc + offset)) = 0;
+            } else {
+                // Default to 1-byte write if type is unknown (common for Swift enums). 
+                // Since memory is usually zero-initialized, writing 1 byte of 0 is safe.
+                *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 0;
+            }
+            ILOG("forced ivar %{public}s (type: %s) to 0", name, type ? type : "unknown");
         }
     }
 
