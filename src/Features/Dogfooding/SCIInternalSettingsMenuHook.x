@@ -29,7 +29,35 @@ static Class SCIInternalMenuClass(void) {
 
 
 
+static BOOL (*sOrigShowInternal)(id, SEL) = NULL;
+static BOOL sci_showInternal(id self, SEL _cmd) {
+    if (SCIInternalMenuEnabled()) return YES;
+    return sOrigShowInternal ? sOrigShowInternal(self, _cmd) : NO;
+}
 
+static BOOL (*sOrigShowLoggedOut)(id, SEL) = NULL;
+static BOOL sci_showLoggedOut(id self, SEL _cmd) {
+    if (SCIInternalMenuLoggedOutEnabled()) return YES;
+    return sOrigShowLoggedOut ? sOrigShowLoggedOut(self, _cmd) : NO;
+}
+
+static BOOL (*sOrigShowShake)(id, SEL) = NULL;
+static BOOL sci_showShake(id self, SEL _cmd) {
+    if (SCIInternalMenuEnabled()) return YES;
+    return sOrigShowShake ? sOrigShowShake(self, _cmd) : NO;
+}
+
+static BOOL (*sOrigShowAssistant)(id, SEL) = NULL;
+static BOOL sci_showAssistant(id self, SEL _cmd) {
+    if (SCIInternalMenuEnabled()) return YES;
+    return sOrigShowAssistant ? sOrigShowAssistant(self, _cmd) : NO;
+}
+
+static long (*sOrigAvailabilityStatus)(id, SEL) = NULL;
+static long sci_availabilityStatus(id self, SEL _cmd) {
+    if (SCIInternalMenuEnabled()) return 0;
+    return sOrigAvailabilityStatus ? sOrigAvailabilityStatus(self, _cmd) : 2;
+}
 
 static BOOL SCICellContainsText(UIView *view, NSString *text) {
     if ([view isKindOfClass:NSClassFromString(@"UILabel")]) {
@@ -72,6 +100,19 @@ static void SCIHookBoolGetter(Class C, SEL sel, IMP replacement, IMP *orig) {
 static void SCIInstallInternalMenuHook(void) {
     Class C = SCIInternalMenuClass();
     if (!C) { ILOG("IGBugReportMenuViewController not loaded"); return; }
+
+    SCIHookBoolGetter(C, @selector(showInternalSettings), (IMP)sci_showInternal, (IMP *)&sOrigShowInternal);
+    SCIHookBoolGetter(C, @selector(showLoggedOutInternalSettings), (IMP)sci_showLoggedOut, (IMP *)&sOrigShowLoggedOut);
+    SCIHookBoolGetter(C, @selector(showShakeToReportPreferenceToggle), (IMP)sci_showShake, (IMP *)&sOrigShowShake);
+    SCIHookBoolGetter(C, @selector(showDogfoodingAssistant), (IMP)sci_showAssistant, (IMP *)&sOrigShowAssistant);
+
+    SEL statusSel = NSSelectorFromString(@"internalSettingsAvailabilityStatus");
+    if (class_getInstanceMethod(C, statusSel) && !sOrigAvailabilityStatus) {
+        IMP orig = NULL;
+        MSHookMessageEx(C, statusSel, (IMP)sci_availabilityStatus, &orig);
+        sOrigAvailabilityStatus = (long (*)(id, SEL))orig;
+        ILOG("availability status hook %s", sOrigAvailabilityStatus ? "hooked" : "failed");
+    }
 
     SEL selectSel = @selector(tableView:didSelectRowAtIndexPath:);
     if (class_getInstanceMethod(C, selectSel) && !sOrigDidSelectRow) {
