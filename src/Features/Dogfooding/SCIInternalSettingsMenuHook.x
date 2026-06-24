@@ -88,16 +88,16 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
 %end
 
 static void SCIInstallInternalMenuHook(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        Class C = SCIInternalMenuClass();
-        if (C) {
+    Class C = SCIInternalMenuClass();
+    if (C) {
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
             %init(SCIInternalMenuHooks, IGBugReportMenuViewController = C);
             ILOG("IGBugReportMenuViewController hooked successfully via Logos.");
-        } else {
-            ILOG("IGBugReportMenuViewController not loaded yet.");
-        }
-    });
+        });
+    } else {
+        ILOG("IGBugReportMenuViewController not loaded yet.");
+    }
 }
 
 void SCIInstallInternalSettingsMenuHookIfNeeded(void) {
@@ -110,11 +110,15 @@ void SCIInstallInternalSettingsMenuHookIfNeeded(void) {
     @autoreleasepool {
         [SCIInternalGatePrefs installCrashGuardIfNeeded];
         SCIInstallInternalMenuHook();
-        double delays[] = {1.0, 3.0, 6.0, 10.0};
-        for (NSUInteger i = 0; i < sizeof(delays) / sizeof(delays[0]); i++) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delays[i] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                SCIInstallInternalMenuHook();
-            });
-        }
+        
+        // Continuously poll in the background until the framework is loaded
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *timer) {
+                if (SCIInternalMenuClass()) {
+                    SCIInstallInternalMenuHook();
+                    [timer invalidate];
+                }
+            }];
+        });
     }
 }
