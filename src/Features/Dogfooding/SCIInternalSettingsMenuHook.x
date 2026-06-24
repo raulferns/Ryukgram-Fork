@@ -145,20 +145,15 @@ static void sci_didSelectRow(id self, SEL _cmd, id tableView, id indexPath) {
     } @catch (__unused id e) {}
     
     if (cell && SCICellContainsText(cell, @"Internal Settings")) {
-        ILOG("intercepted Internal Settings tap");
-        if ([SCIUtils getBoolPref:@"sci_internal_menus"]) {
-            ILOG("Internal & Dogfood Menus is ON, calling SCIInternalMenusForceApplyNow() and letting native didSelectRow run");
-            (void)SCIInternalMenusForceApplyNow();
-        } else {
-            Class runtimeCls = NSClassFromString(@"SCIDogfoodObjectRuntime");
-            if (runtimeCls) {
-                BOOL ok = ((BOOL(*)(id, SEL))objc_msgSend)(runtimeCls, NSSelectorFromString(@"tryOpenNativeDogfoodSettings"));
-                if (ok) return;
-            }
-        }
+        ILOG("intercepted Internal Settings tap — applying ObjC employee hooks");
+        // Apply the ObjC employee-spoofing hooks lazily (lightweight, no fishhook).
+        // The heavy function hooks (MobileConfigGate, EmployeeCheck, SocketWrapper)
+        // are already installed at %ctor in SCIInternalMenusForce.x.
+        (void)SCIInternalMenusForceApplyNow();
     }
     if (sOrigDidSelectRow) sOrigDidSelectRow(self, _cmd, tableView, indexPath);
 }
+
 
 static void SCIHookBoolGetter(Class C, SEL sel, IMP replacement, IMP *orig) {
     if (!C || !sel || *orig) return;
