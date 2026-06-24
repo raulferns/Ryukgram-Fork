@@ -66,96 +66,30 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
 #pragma mark - GraphQL spoofing (ObjC hooks for IGUser employee fragment)
 // ---------------------------------------------------------------------------
 
-@interface SCIMockEmployeeFragment : NSObject
-- (NSString *)graphQLID;
-- (NSArray *)accountBadges;
-- (BOOL)isEmployee;
-- (BOOL)isTestUser;
-@end
-
-@implementation SCIMockEmployeeFragment
-- (NSString *)graphQLID {
-    return @"90010000000001";
-}
-- (NSArray *)accountBadges {
-    return @[];
-}
-- (BOOL)isEmployee {
-    return YES;
-}
-- (BOOL)isTestUser {
-    return YES;
-}
-
-// Safe forwarding to prevent unrecognized selector crashes on mock fragment
-- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
-    NSMethodSignature *sig = [super methodSignatureForSelector:aSelector];
-    if (!sig) {
-        NSString *selStr = NSStringFromSelector(aSelector);
-        NSUInteger count = 0;
-        for (NSUInteger i = 0; i < selStr.length; i++) {
-            if ([selStr characterAtIndex:i] == ':') {
-                count++;
-            }
+static id (*orig_asIGInternalSettingsAvailabilityFragmentImmutableModel)(id, SEL) = NULL;
+static id sci_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SEL _cmd) {
+    id fragment = orig_asIGInternalSettingsAvailabilityFragmentImmutableModel(self, _cmd);
+    if (fragment) {
+        Class fragmentClass = [fragment class];
+        if (fragmentClass) {
+            [SCIRuntimeBoolForce forceClassNamed:NSStringFromClass(fragmentClass) selector:@"isEmployee" classMethod:NO value:YES];
+            [SCIRuntimeBoolForce forceClassNamed:NSStringFromClass(fragmentClass) selector:@"isTestUser" classMethod:NO value:YES];
         }
-        NSMutableString *types = [NSMutableString stringWithString:@"@@:"];
-        for (NSUInteger i = 0; i < count; i++) {
-            [types appendString:@"@"];
-        }
-        sig = [NSMethodSignature signatureWithObjCTypes:[types UTF8String]];
     }
-    return sig;
+    return fragment;
 }
 
-- (void)forwardInvocation:(NSInvocation *)anInvocation {
-    NSLog(@"[RyukGram] SCIMockEmployeeFragment ignored selector: %@", NSStringFromSelector(anInvocation.selector));
-    id nilVal = nil;
-    [anInvocation setReturnValue:&nilVal];
-}
-@end
-
-@interface SCIMockAvailabilityModel : NSObject
-- (id)asIGUserIsEmployeeOrTestUserFragment;
-@end
-
-@implementation SCIMockAvailabilityModel
-- (id)asIGUserIsEmployeeOrTestUserFragment {
-    return [SCIMockEmployeeFragment new];
-}
-
-// Safe forwarding to prevent unrecognized selector crashes on mock model
-- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
-    NSMethodSignature *sig = [super methodSignatureForSelector:aSelector];
-    if (!sig) {
-        NSString *selStr = NSStringFromSelector(aSelector);
-        NSUInteger count = 0;
-        for (NSUInteger i = 0; i < selStr.length; i++) {
-            if ([selStr characterAtIndex:i] == ':') {
-                count++;
-            }
+static id (*orig_asIGUserIsEmployeeOrTestUserFragment)(id, SEL) = NULL;
+static id sci_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
+    id fragment = orig_asIGUserIsEmployeeOrTestUserFragment(self, _cmd);
+    if (fragment) {
+        Class fragmentClass = [fragment class];
+        if (fragmentClass) {
+            [SCIRuntimeBoolForce forceClassNamed:NSStringFromClass(fragmentClass) selector:@"isEmployee" classMethod:NO value:YES];
+            [SCIRuntimeBoolForce forceClassNamed:NSStringFromClass(fragmentClass) selector:@"isTestUser" classMethod:NO value:YES];
         }
-        NSMutableString *types = [NSMutableString stringWithString:@"@@:"];
-        for (NSUInteger i = 0; i < count; i++) {
-            [types appendString:@"@"];
-        }
-        sig = [NSMethodSignature signatureWithObjCTypes:[types UTF8String]];
     }
-    return sig;
-}
-
-- (void)forwardInvocation:(NSInvocation *)anInvocation {
-    NSLog(@"[RyukGram] SCIMockAvailabilityModel ignored selector: %@", NSStringFromSelector(anInvocation.selector));
-    id nilVal = nil;
-    [anInvocation setReturnValue:&nilVal];
-}
-@end
-
-static id new_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SEL _cmd) {
-    return [SCIMockAvailabilityModel new];
-}
-
-static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
-    return [SCIMockEmployeeFragment new];
+    return fragment;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,19 +105,20 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
         if (igUserCls) {
             SEL sel1 = NSSelectorFromString(@"asIGInternalSettingsAvailabilityFragmentImmutableModel");
             if (class_getInstanceMethod(igUserCls, sel1)) {
-                IMP orig = NULL;
-                MSHookMessageEx(igUserCls, sel1, (IMP)new_asIGInternalSettingsAvailabilityFragmentImmutableModel, &orig);
+                MSHookMessageEx(igUserCls, sel1, (IMP)sci_asIGInternalSettingsAvailabilityFragmentImmutableModel, (IMP *)&orig_asIGInternalSettingsAvailabilityFragmentImmutableModel);
                 installed++;
             }
             SEL sel2 = NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment");
             if (class_getInstanceMethod(igUserCls, sel2)) {
-                IMP orig = NULL;
-                MSHookMessageEx(igUserCls, sel2, (IMP)new_asIGUserIsEmployeeOrTestUserFragment, &orig);
+                MSHookMessageEx(igUserCls, sel2, (IMP)sci_asIGUserIsEmployeeOrTestUserFragment, (IMP *)&orig_asIGUserIsEmployeeOrTestUserFragment);
                 installed++;
             }
             didHookGraphQLEmployee = YES;
         }
     }
+
+    if ([SCIRuntimeBoolForce forceClassNamed:@"IGUser" selector:@"isEmployee" classMethod:NO value:YES]) installed++;
+    if ([SCIRuntimeBoolForce forceClassNamed:@"IGUser" selector:@"isTestUser" classMethod:NO value:YES]) installed++;
 
     // Master local employee gate (FBSharedFramework). This is the predicate the
     // [ig-only]/[internal-only] action checkers consult and the dogfood entry
@@ -216,7 +151,11 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
 }
 
 NSString *SCIInternalMenusForceApplyNow(void) {
-    return @"Hooks are now installed at launch. No action needed on tap.";
+    if (![SCIUtils getBoolPref:@"sci_internal_menus"]) {
+        return @"Internal & Dogfood Menus is OFF. Toggle state is persisted and no hook is active for this session.";
+    }
+    NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
+    return [NSString stringWithFormat:@"Applied %lu internal menu runtime hooks.", (unsigned long)installed];
 }
 
 // ---------------------------------------------------------------------------

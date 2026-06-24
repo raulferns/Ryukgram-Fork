@@ -27,88 +27,9 @@ static Class SCIInternalMenuClass(void) {
     return C;
 }
 
-static void SCIForceBugReportMenuIvars(id vc) {
-    if (!vc) return;
-    Class cls = [vc class];
-    unsigned int count = 0;
-    Ivar *ivars = class_copyIvarList(cls, &count);
-    ILOG("checking %u bug-report-menu ivars for class %{public}s", count, class_getName(cls));
-
-    for (unsigned int i = 0; i < count; i++) {
-        Ivar ivar = ivars[i];
-        const char *name = ivar_getName(ivar);
-        const char *type = ivar_getTypeEncoding(ivar);
-        if (!name) continue;
-
-        ptrdiff_t offset = ivar_getOffset(ivar);
-        NSString *ivarName = [NSString stringWithUTF8String:name];
-
-        if ([ivarName containsString:@"showInternalSettings"]) {
-            *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
-            ILOG("forced ivar %{public}s (type: %s) to 1", name, type ? type : "unknown");
-        } else if ([ivarName containsString:@"showLoggedOutInternalSettings"]) {
-            *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
-            ILOG("forced ivar %{public}s (type: %s) to 1", name, type ? type : "unknown");
-        } else if ([ivarName containsString:@"showShakeToReportPreferenceToggle"]) {
-            *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 1;
-            ILOG("forced ivar %{public}s (type: %s) to 1", name, type ? type : "unknown");
-        } else if ([ivarName containsString:@"internalSettingsAvailabilityStatus"]) {
-            if (type && (type[0] == 'q' || type[0] == 'Q' || type[0] == 'l' || type[0] == 'L')) {
-                *((long *)((char *)(__bridge void *)vc + offset)) = 0;
-            } else if (type && (type[0] == 'i' || type[0] == 'I')) {
-                *((int *)((char *)(__bridge void *)vc + offset)) = 0;
-            } else {
-                // Default to 1-byte write if type is unknown (common for Swift enums). 
-                // Since memory is usually zero-initialized, writing 1 byte of 0 is safe.
-                *((uint8_t *)((char *)(__bridge void *)vc + offset)) = 0;
-            }
-            ILOG("forced ivar %{public}s (type: %s) to 0", name, type ? type : "unknown");
-        }
-    }
-
-    free(ivars);
-}
 
 
 
-static void (*sOrigViewDidLoad)(id, SEL) = NULL;
-static void sci_viewDidLoad(id self, SEL _cmd) {
-    ILOG("viewDidLoad");
-    if (sOrigViewDidLoad) sOrigViewDidLoad(self, _cmd);
-    if (SCIInternalMenuEnabled()) {
-        SCIForceBugReportMenuIvars(self);
-    }
-}
-
-static BOOL (*sOrigShowInternal)(id, SEL) = NULL;
-static BOOL sci_showInternal(id self, SEL _cmd) {
-    if (SCIInternalMenuEnabled()) return YES;
-    return sOrigShowInternal ? sOrigShowInternal(self, _cmd) : NO;
-}
-
-static BOOL (*sOrigShowLoggedOut)(id, SEL) = NULL;
-static BOOL sci_showLoggedOut(id self, SEL _cmd) {
-    if (SCIInternalMenuLoggedOutEnabled()) return YES;
-    return sOrigShowLoggedOut ? sOrigShowLoggedOut(self, _cmd) : NO;
-}
-
-static BOOL (*sOrigShowShake)(id, SEL) = NULL;
-static BOOL sci_showShake(id self, SEL _cmd) {
-    if (SCIInternalMenuEnabled()) return YES;
-    return sOrigShowShake ? sOrigShowShake(self, _cmd) : NO;
-}
-
-static BOOL (*sOrigShowAssistant)(id, SEL) = NULL;
-static BOOL sci_showAssistant(id self, SEL _cmd) {
-    if (SCIInternalMenuEnabled()) return YES;
-    return sOrigShowAssistant ? sOrigShowAssistant(self, _cmd) : NO;
-}
-
-static long (*sOrigAvailabilityStatus)(id, SEL) = NULL;
-static long sci_availabilityStatus(id self, SEL _cmd) {
-    if (SCIInternalMenuEnabled()) return 0;
-    return sOrigAvailabilityStatus ? sOrigAvailabilityStatus(self, _cmd) : 2;
-}
 
 static BOOL SCICellContainsText(UIView *view, NSString *text) {
     if ([view isKindOfClass:NSClassFromString(@"UILabel")]) {
@@ -149,33 +70,8 @@ static void SCIHookBoolGetter(Class C, SEL sel, IMP replacement, IMP *orig) {
 }
 
 static void SCIInstallInternalMenuHook(void) {
-    static BOOL didViewDidLoadHook = NO;
     Class C = SCIInternalMenuClass();
     if (!C) { ILOG("IGBugReportMenuViewController not loaded"); return; }
-
-    if (!didViewDidLoadHook) {
-        SEL viewDidLoadSel = @selector(viewDidLoad);
-        if (class_getInstanceMethod(C, viewDidLoadSel)) {
-            IMP orig = NULL;
-            MSHookMessageEx(C, viewDidLoadSel, (IMP)sci_viewDidLoad, &orig);
-            sOrigViewDidLoad = (void (*)(id, SEL))orig;
-            didViewDidLoadHook = (orig != NULL);
-            ILOG("viewDidLoad hook %{public}s", didViewDidLoadHook ? "hooked" : "failed");
-        }
-    }
-
-    SCIHookBoolGetter(C, @selector(showInternalSettings), (IMP)sci_showInternal, (IMP *)&sOrigShowInternal);
-    SCIHookBoolGetter(C, @selector(showLoggedOutInternalSettings), (IMP)sci_showLoggedOut, (IMP *)&sOrigShowLoggedOut);
-    SCIHookBoolGetter(C, @selector(showShakeToReportPreferenceToggle), (IMP)sci_showShake, (IMP *)&sOrigShowShake);
-    SCIHookBoolGetter(C, @selector(showDogfoodingAssistant), (IMP)sci_showAssistant, (IMP *)&sOrigShowAssistant);
-
-    SEL statusSel = NSSelectorFromString(@"internalSettingsAvailabilityStatus");
-    if (class_getInstanceMethod(C, statusSel) && !sOrigAvailabilityStatus) {
-        IMP orig = NULL;
-        MSHookMessageEx(C, statusSel, (IMP)sci_availabilityStatus, &orig);
-        sOrigAvailabilityStatus = (long (*)(id, SEL))orig;
-        ILOG("availability status hook %s", sOrigAvailabilityStatus ? "hooked" : "failed");
-    }
 
     SEL selectSel = @selector(tableView:didSelectRowAtIndexPath:);
     if (class_getInstanceMethod(C, selectSel) && !sOrigDidSelectRow) {
