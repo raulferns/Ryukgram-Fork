@@ -60,30 +60,7 @@ static void SCIForceBugReportMenuIvars(id vc) {
     free(ivars);
 }
 
-typedef id (*SCIBugMenuInitIMP)(id, SEL, id, id, id, id, id, id, long, long, BOOL, BOOL, BOOL);
-static SCIBugMenuInitIMP sOrigBugMenuInit = NULL;
 
-static id sci_bugMenuInitHook(id self, SEL _cmd,
-    id deviceSession, id userSession, id reliabilityLogging,
-    id navChain, id endpoint, id entryPoint,
-    long style, long status,
-    BOOL showInternal, BOOL showLoggedOut, BOOL showShake)
-{
-    ILOG("init entry: status=%ld internal=%d loggedOut=%d shake=%d", status, showInternal, showLoggedOut, showShake);
-    if (SCIInternalMenuEnabled()) {
-        showInternal = YES;
-        showShake = YES;
-        status = 0;
-        if (SCIInternalMenuLoggedOutEnabled()) showLoggedOut = YES;
-        ILOG("init forced: status=%ld internal=%d loggedOut=%d shake=%d", status, showInternal, showLoggedOut, showShake);
-    }
-
-    id result = sOrigBugMenuInit ? sOrigBugMenuInit(self, _cmd, deviceSession, userSession, reliabilityLogging, navChain, endpoint, entryPoint, style, status, showInternal, showLoggedOut, showShake) : self;
-    if (SCIInternalMenuEnabled()) {
-        SCIForceBugReportMenuIvars(result);
-    }
-    return result;
-}
 
 static void (*sOrigViewDidLoad)(id, SEL) = NULL;
 static void sci_viewDidLoad(id self, SEL _cmd) {
@@ -163,19 +140,9 @@ static void SCIHookBoolGetter(Class C, SEL sel, IMP replacement, IMP *orig) {
 }
 
 static void SCIInstallInternalMenuHook(void) {
-    static BOOL didInitHook = NO;
     static BOOL didViewDidLoadHook = NO;
     Class C = SCIInternalMenuClass();
     if (!C) { ILOG("IGBugReportMenuViewController not loaded"); return; }
-
-    SEL initSel = NSSelectorFromString(@"initWithDeviceSession:userSession:reliabilityLogging:navChain:endpoint:entryPoint:style:internalSettingsAvailabilityStatus:showInternalSettings:showLoggedOutInternalSettings:showShakeToReportPreferenceToggle:");
-    if (!didInitHook && class_getInstanceMethod(C, initSel)) {
-        IMP orig = NULL;
-        MSHookMessageEx(C, initSel, (IMP)sci_bugMenuInitHook, &orig);
-        sOrigBugMenuInit = (SCIBugMenuInitIMP)orig;
-        didInitHook = (orig != NULL);
-        ILOG("init hook %{public}s", didInitHook ? "hooked" : "failed");
-    }
 
     if (!didViewDidLoadHook) {
         SEL viewDidLoadSel = @selector(viewDidLoad);
