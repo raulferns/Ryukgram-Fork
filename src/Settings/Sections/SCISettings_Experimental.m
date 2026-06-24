@@ -123,7 +123,7 @@
 				}),
 				({
 					SCISetting *s = [SCISetting switchCellWithTitle:SCILocalized(@"Instagram Plus")
-									   subtitle:SCILocalized(@"Forces all client-side Instagram Plus benefit getters")
+									   subtitle:SCILocalized(@"Unlocks client-side IG+ benefits (custom lists, story extend/rewatch/superlikes, silent posts, bio font, pinned limit). Server side unchanged.")
 									defaultsKey:@"sci_force_igplus_all"
 									requiresRestart:YES];
 					s.icon = [SCISymbol symbolWithName:@"instagram_plus" color:UIColor.labelColor];

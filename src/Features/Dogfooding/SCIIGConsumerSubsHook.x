@@ -1,18 +1,30 @@
 // ============================================================================
-// SCIIGConsumerSubsHook.x
+// SCIIGConsumerSubsHook.x  —  Instagram Plus (IGPlus) client benefit unlock
 // ============================================================================
-// Instagram Plus (IGPlus) CLIENT benefit unlock.
-//
 // IGConsumerSubsService is the single client source-of-truth the feature code
-// asks "is benefit X enabled?". Every getter is a plain @objc BOOL (B@:), so
-// MSHookMessageEx is the correct, reliable primitive (confirmed via FLEX:
-// "runtime hook: forced TRUE"). Forcing these makes the app behave as a
-// subscriber for everything the client renders/decides locally. The server
-// eligibility QUERY stays server-side, but features read THESE getters.
+// asks "is benefit X enabled?". Each getter is a plain @objc BOOL (B@:), so
+// MSHookMessageEx is the correct primitive. Forcing these makes the app behave
+// as a subscriber for everything the client renders/decides LOCALLY. The server
+// eligibility QUERY stays server-side; features read THESE getters.
 //
-// TIMING: one known class, ~20 selectors, installed once after
-// UIApplicationDidBecomeActive. No blind dispatch_after retry ladder, no class
-// enumeration, no main-thread scanning -> no launch slowness.
+// ONLY LIVE getters are hooked here. Each was verified against the shipping
+// binary to (a) be a real instance method of the class AND (b) have an
+// __objc_selref — i.e. there is a real objc_msgSend call site. Getters without
+// a selref are reached only by Swift direct-dispatch (vtable), which a swizzle
+// cannot intercept, so hooking them does nothing. Those dead getters were
+// REMOVED to stop giving a false "applied" impression:
+//   hasAccessToIGPlus, isStoryPeeksBenefitEnabled, isStorySpotlightBenefitEnabled,
+//   isDirectMessagePeekBenefitEnabled, isCustomAppIconBenefitEnabled,
+//   isBrandedThreadsBenefitEnabled, isTimestampViewersListBenefitEnabled,
+//   isBenefitActive:
+// (Note: the app likely gates the IG+ surface on hasAnyActiveBenefit — which IS
+//  live and kept — rather than the dead hasAccessToIGPlus.)
+//
+// TIMING: one known class + StoryPeek coordinator, installed once on
+// UIApplicationDidBecomeActive (see SCIInstallOnce.h). No %ctor hooking (avoids
+// the static-init race), no dispatch_after retry ladder, no class enumeration.
+// Gated on the master pref so users who never enable IG+ are not swizzled; the
+// settings row is requiresRestart:YES, so first-enable applies on relaunch.
 //
 // Each getter is gated by its own pref OR the master `sci_force_igplus_all`.
 
@@ -27,36 +39,30 @@
 static NSString *const kMaster = @"sci_force_igplus_all";
 static inline BOOL ON(NSString *k){ return [SCIInternalGatePrefs individualGateEnabledForKey:kMaster] || [SCIInternalGatePrefs individualGateEnabledForKey:k]; }
 
-// selector <-> pref table (no-arg BOOL getters)
-typedef struct { const char *sel; NSString *key; } SCIBenefit;
+// LIVE no-arg BOOL getters only (method + objc_msgSend selref verified). The key
+// array is index-aligned with the selector array below.
 static NSArray<NSString *> *benefitKeys(void){ return @[
-    @"sci_igplus_has_access", @"sci_igplus_any_active",
+    @"sci_igplus_any_active",
     @"sci_igplus_custom_lists", @"sci_igplus_story_superlikes", @"sci_igplus_search_story_viewers",
-    @"sci_igplus_story_extend", @"sci_igplus_story_rewatch", @"sci_igplus_story_peeks",
-    @"sci_igplus_story_spotlight", @"sci_igplus_silent_post_highlights", @"sci_igplus_dm_peek",
-    @"sci_igplus_custom_app_icon", @"sci_igplus_branded_threads", @"sci_igplus_timestamp_viewers",
-    @"sci_igplus_custom_bio_font", @"sci_igplus_silent_post_profile", @"sci_igplus_pinned_posts_limit",
-    @"sci_igplus_story_peek_active" ]; }
+    @"sci_igplus_story_extend", @"sci_igplus_story_rewatch", @"sci_igplus_silent_post_highlights",
+    @"sci_igplus_custom_bio_font", @"sci_igplus_silent_post_profile", @"sci_igplus_pinned_posts_limit" ]; }
 
 static const char *benefitSels[] = {
-    "hasAccessToIGPlus", "hasAnyActiveBenefit",
+    "hasAnyActiveBenefit",
     "isCustomListsBenefitEnabled", "isStorySuperlikesBenefitEnabled", "isSearchStoryViewersBenefitEnabled",
-    "isStoryExtendBenefitEnabled", "isStoryRewatchBenefitEnabled", "isStoryPeeksBenefitEnabled",
-    "isStorySpotlightBenefitEnabled", "isSilentPostToHighlightsBenefitEnabled", "isDirectMessagePeekBenefitEnabled",
-    "isCustomAppIconBenefitEnabled", "isBrandedThreadsBenefitEnabled", "isTimestampViewersListBenefitEnabled",
+    "isStoryExtendBenefitEnabled", "isStoryRewatchBenefitEnabled", "isSilentPostToHighlightsBenefitEnabled",
     "isCustomBioFontInProfileBenefitEnabled", "isSilentPostToProfileBenefitEnabled", "isPinnedPostsIncreasedLimitEnabled",
     NULL };
 
-#define MAXH 40
+#define MAXH 24
 static IMP   gOrig[MAXH];
 static SEL   gSel[MAXH];
 static NSString *gKey[MAXH];
 static int   gN = 0;
-static IMP   gOrigActive; static SEL gSelActive;
 static NSMutableSet<NSString *> *gDone;
 
 static void hookGetter(Class cls, SEL sel, NSString *prefKey) {
-    if (gN>=MAXH || !cls || !class_getInstanceMethod(cls, sel)) return;
+    if (gN>=MAXH || !cls || !sel || !class_getInstanceMethod(cls, sel)) return;
     NSString *tag=[NSString stringWithFormat:@"%s#%s",class_getName(cls),sel_getName(sel)];
     if ([gDone containsObject:tag]) return;
     int idx=gN++; gSel[idx]=sel; gKey[idx]=prefKey;
@@ -69,52 +75,30 @@ static void hookGetter(Class cls, SEL sel, NSString *prefKey) {
     [gDone addObject:tag]; SCILOG("%{public}@: %{public}s", tag, orig?"HOOKED":"FAILED");
 }
 
-static void hookIsBenefitActive(Class cls) {
-    SEL sel=NSSelectorFromString(@"isBenefitActive:");
-    if (gOrigActive || !cls || !class_getInstanceMethod(cls, sel)) return;
-    gSelActive=sel;
-    IMP newImp=imp_implementationWithBlock(^BOOL(id self, id benefit){
-        if (ON(@"sci_igplus_any_active")) return YES;
-        BOOL(*o)(id,SEL,id)=(BOOL(*)(id,SEL,id))gOrigActive;
-        return o?o(self,gSelActive,benefit):NO;
-    });
-    MSHookMessageEx(cls,sel,newImp,&gOrigActive);
-    SCILOG("isBenefitActive: %{public}s", gOrigActive?"HOOKED":"FAILED");
-}
-
-
-static BOOL SCIAnyIGPlusPrefEnabled(void) {
-    if ([SCIInternalGatePrefs individualGateEnabledForKey:kMaster]) return YES;
-    for (NSString *key in benefitKeys()) {
-        if ([SCIInternalGatePrefs individualGateEnabledForKey:key]) return YES;
-    }
-    return NO;
-}
-
 static void install(void) {
     if (!gDone) gDone=[NSMutableSet set];
-    Class svc = NSClassFromString(@"IGConsumerSubsService");
-    if (!svc) svc = NSClassFromString(@"_TtC21IGConsumerSubsService21IGConsumerSubsService");
+    Class svc = NSClassFromString(@"IGConsumerSubsService") ?: NSClassFromString(@"_TtC21IGConsumerSubsService21IGConsumerSubsService");
     if (svc) {
         NSArray<NSString *> *keys = benefitKeys();
         for (int i=0; benefitSels[i]; i++)
             hookGetter(svc, NSSelectorFromString(@(benefitSels[i])), keys[i]);
-        hookIsBenefitActive(svc);
     } else {
         SCILOG("IGConsumerSubsService not loaded yet");
     }
-    // StoryPeek coordinator (isPeekActive)
+    // StoryPeek coordinator: isPeekActive is a real, live (selref) method on this
+    // separate class — kept.
     Class peek = NSClassFromString(@"_TtC23IGConsumerSubsStoryPeek34IGConsumerSubsStoryPeekCoordinator");
     if (peek) hookGetter(peek, NSSelectorFromString(@"isPeekActive"), @"sci_igplus_story_peek_active");
 }
 
 %ctor {
     @autoreleasepool {
-        if (!SCIAnyIGPlusPrefEnabled()) return;
-        [SCIInternalGatePrefs installCrashGuardIfNeeded];
-        install();
-        // Controlled fallback for Swift classes that are not realized until the app becomes active.
-        // This is not a retry ladder and does not depend on opening the tweak UI.
-        SCIInstallOnceOnActive(^{ install(); });
+        if (![SCIInternalGatePrefs individualGateEnabledForKey:kMaster]) return;
+        // On-active only: the Swift classes are realized by the time the UI is up,
+        // and we avoid hooking during dyld static-init. Idempotent (gDone guard).
+        SCIInstallOnceOnActive(^{
+            [SCIInternalGatePrefs installCrashGuardIfNeeded];
+            install();
+        });
     }
 }
