@@ -62,6 +62,10 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
     return res;
 }
 
+static BOOL mock_return_yes(id self, SEL _cmd) {
+    return YES;
+}
+
 static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
     static Class mockCls = Nil;
     static dispatch_once_t onceToken;
@@ -93,10 +97,6 @@ static id new_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SE
         }
     });
     return mockCls ? [[mockCls alloc] init] : nil;
-}
-
-static BOOL mock_return_yes(id self, SEL _cmd) {
-    return YES;
 }
 
 
