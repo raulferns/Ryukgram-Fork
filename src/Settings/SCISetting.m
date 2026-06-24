@@ -54,167 +54,135 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 	return setting;
 }
 
-// MARK: - + dynamicCellWithTitle
-
-+ (instancetype)dynamicCellWithTitle:(NSString *)title
-							subtitle:(NSString *)subtitle
-								icon:(nullable SCISymbol *)icon
-							dynamicTitle:(NSString *(^)(void))dynamicTitle
-{
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellDynamic];
-
-	setting.title = title;
-	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.dynamicTitle = dynamicTitle;
-
-	return setting;
-}
-
-// MARK: - + toggleCellWithTitle
-
-+ (instancetype)toggleCellWithTitle:(NSString *)title
-						  subtitle:(NSString *)subtitle
-							  icon:(nullable SCISymbol *)icon
-						   defaultsKey:(NSString *)defaultsKey
-{
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellToggle];
-
-	setting.title = title;
-	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.defaultsKey = defaultsKey;
-
-	return setting;
-}
-
-// MARK: - + textCellWithTitle
-
-+ (instancetype)textCellWithTitle:(NSString *)title
-						subtitle:(NSString *)subtitle
-							icon:(nullable SCISymbol *)icon
-						defaultsKey:(NSString *)defaultsKey
-						placeholder:(NSString *)placeholder
-{
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellText];
-
-	setting.title = title;
-	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.defaultsKey = defaultsKey;
-	setting.placeholder = placeholder;
-
-	return setting;
-}
-
 // MARK: - + linkCellWithTitle
 
 + (instancetype)linkCellWithTitle:(NSString *)title
-						subtitle:(NSString *)subtitle
-							icon:(nullable SCISymbol *)icon
-								URL:(NSURL *)URL
+						 subtitle:(NSString *)subtitle
+							 icon:(nullable SCISymbol *)icon
+							  url:(NSString *)url
 {
 	SCISetting *setting = [[self alloc] initWithType:SCITableCellLink];
 
 	setting.title = title;
 	setting.subtitle = subtitle;
 	setting.icon = icon;
-	setting.URL = URL;
+	setting.url = [NSURL URLWithString:url];
 
 	return setting;
 }
 
-// MARK: - + actionCellWithTitle
-
-+ (instancetype)actionCellWithTitle:(NSString *)title
-						  subtitle:(NSString *)subtitle
-							  icon:(nullable SCISymbol *)icon
-							action:(void (^)(void))action
++ (instancetype)linkCellWithTitle:(NSString *)title
+						 subtitle:(NSString *)subtitle
+						 imageUrl:(NSString *)imageUrl
+							  url:(NSString *)url
 {
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellAction];
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellLink];
 
 	setting.title = title;
 	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.action = action;
+
+	setting.imageUrl = [NSURL URLWithString:imageUrl];
+	setting.url = [NSURL URLWithString:url];
 
 	return setting;
 }
 
-// MARK: - + commandCellWithTitle
+// MARK: - + switchCellWithTitle
 
-+ (instancetype)commandCellWithTitle:(NSString *)title
++ (instancetype)switchCellWithTitle:(NSString *)title
+						   subtitle:(NSString *)subtitle
+						defaultsKey:(NSString *)defaultsKey
+{
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellSwitch];
+
+	setting.title = title;
+	setting.subtitle = subtitle;
+	setting.defaultsKey = defaultsKey;
+
+	return setting;
+}
+
++ (instancetype)switchCellWithTitle:(NSString *)title
+						   subtitle:(NSString *)subtitle
+						defaultsKey:(NSString *)defaultsKey
+					requiresRestart:(BOOL)requiresRestart
+{
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellSwitch];
+
+	setting.title = title;
+	setting.subtitle = subtitle;
+	setting.defaultsKey = defaultsKey;
+	setting.requiresRestart = requiresRestart;
+
+	return setting;
+}
+
++ (instancetype)switchCellWithTitle:(NSString *)title
+						   subtitle:(nullable NSString *)subtitle
+							  value:(BOOL (^)(void))value
+							 action:(void (^)(BOOL on))action
+{
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellSwitch];
+
+	setting.title = title;
+	setting.subtitle = subtitle;
+	setting.switchValueProvider = value;
+	setting.switchAction = action;
+
+	return setting;
+}
+
++ (instancetype)customCellWithHeight:(CGFloat)height
+							provider:(UITableViewCell *(^)(UITableView *tableView, NSIndexPath *indexPath))provider
+{
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellCustom];
+
+	setting.customHeight = height;
+	setting.customCellProvider = provider;
+
+	return setting;
+}
+
+// MARK: - + stepperCellWithTitle
+
++ (instancetype)stepperCellWithTitle:(NSString *)title
+							subtitle:(NSString *)subtitle
+						 defaultsKey:(NSString *)defaultsKey
+								 min:(double)min
+								 max:(double)max
+								step:(double)step
+							   label:(NSString *)label
+					   singularLabel:(NSString *)singularLabel
+{
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellStepper];
+
+	setting.title = title;
+	setting.subtitle = subtitle;
+	setting.defaultsKey = defaultsKey;
+
+	setting.min = min;
+	setting.max = max;
+	setting.step = step;
+	setting.label = label;
+	setting.singularLabel = singularLabel;
+
+	return setting;
+}
+
+// MARK: - + buttonCellWithTitle
+
++ (instancetype)buttonCellWithTitle:(NSString *)title
 						   subtitle:(NSString *)subtitle
 							   icon:(nullable SCISymbol *)icon
-							  command:(SCICommand *)command
+							 action:(void (^)(void))action
 {
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellCommand];
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellButton];
 
 	setting.title = title;
 	setting.subtitle = subtitle;
+
 	setting.icon = icon;
-	setting.command = command;
-
-	return setting;
-}
-
-// MARK: - + menuCellWithTitle
-
-+ (instancetype)menuCellWithTitle:(NSString *)title
-						subtitle:(NSString *)subtitle
-							icon:(nullable SCISymbol *)icon
-						defaultsKey:(NSString *)defaultsKey
-						menuProvider:(SCISettingMenuProvider)menuProvider
-{
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellMenu];
-
-	setting.title = title;
-	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.defaultsKey = defaultsKey;
-	setting.menuProvider = menuProvider;
-
-	return setting;
-}
-
-// MARK: - + menuCellWithTitle (static)
-
-+ (instancetype)menuCellWithTitle:(NSString *)title
-						subtitle:(NSString *)subtitle
-							icon:(nullable SCISymbol *)icon
-						defaultsKey:(NSString *)defaultsKey
-						menuItems:(NSArray<NSDictionary *> *)menuItems
-{
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellMenu];
-
-	setting.title = title;
-	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.defaultsKey = defaultsKey;
-	setting.menuItems = menuItems;
-
-	return setting;
-}
-
-// MARK: - + sliderCellWithTitle
-
-+ (instancetype)sliderCellWithTitle:(NSString *)title
-						 subtitle:(NSString *)subtitle
-							 icon:(nullable SCISymbol *)icon
-						  defaultsKey:(NSString *)defaultsKey
-							  minValue:(CGFloat)minValue
-							  maxValue:(CGFloat)maxValue
-							 stepValue:(CGFloat)stepValue
-{
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellSlider];
-
-	setting.title = title;
-	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.defaultsKey = defaultsKey;
-	setting.minValue = minValue;
-	setting.maxValue = maxValue;
-	setting.stepValue = stepValue;
+	setting.action = action;
 
 	return setting;
 }
@@ -222,118 +190,130 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 // MARK: - + colorCellWithTitle
 
 + (instancetype)colorCellWithTitle:(NSString *)title
-						 subtitle:(NSString *)subtitle
-							 icon:(nullable SCISymbol *)icon
-						  defaultsKey:(NSString *)defaultsKey
+						  subtitle:(NSString *)subtitle
+					   defaultsKey:(NSString *)defaultsKey
+					  defaultColor:(nullable UIColor *)defaultColor
 {
 	SCISetting *setting = [[self alloc] initWithType:SCITableCellColor];
 
 	setting.title = title;
 	setting.subtitle = subtitle;
-	setting.icon = icon;
 	setting.defaultsKey = defaultsKey;
+	setting.defaultColor = defaultColor;
 
 	return setting;
 }
 
-// MARK: - + multiValueCellWithTitle
+# pragma mark + menuCellWithTitle
 
-+ (instancetype)multiValueCellWithTitle:(NSString *)title
-							 subtitle:(NSString *)subtitle
-								 icon:(nullable SCISymbol *)icon
-							  defaultsKey:(NSString *)defaultsKey
-								values:(NSArray<NSDictionary *> *)values
-{
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellMultiValue];
-
-	setting.title = title;
-	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.defaultsKey = defaultsKey;
-	setting.values = values;
-
-	return setting;
-}
-
-// MARK: - + customCellWithTitle
-
-+ (instancetype)customCellWithTitle:(NSString *)title
++ (instancetype)menuCellWithTitle:(NSString *)title
 						 subtitle:(NSString *)subtitle
-							 icon:(nullable SCISymbol *)icon
-						customClass:(Class)customClass
+							 menu:(UIMenu *)menu
 {
-	SCISetting *setting = [[self alloc] initWithType:SCITableCellCustom];
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellMenu];
 
 	setting.title = title;
 	setting.subtitle = subtitle;
-	setting.icon = icon;
-	setting.customClass = customClass;
+
+	setting.baseMenu = menu;
 
 	return setting;
 }
 
-// MARK: - - menu
+// MARK: - + navigationCellWithTitle
 
-- (UIMenu *)menu {
-	if (self.menuProvider) {
-		return self.menuProvider();
-	}
++ (instancetype)navigationCellWithTitle:(NSString *)title
+						   subtitle:(NSString *)subtitle
+							   icon:(nullable SCISymbol *)icon
+							navSections:(NSArray *)navSections
+{
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellNavigation];
 
-	if (self.menuItems) {
-		NSMutableArray<UIMenuElement *> *elements = [NSMutableArray array];
+	setting.title = title;
+	setting.subtitle = subtitle;
 
-		for (NSDictionary *props in self.menuItems) {
-			NSString *title = props[@"title"];
-			NSString *subtitle = props[@"subtitle"];
-			NSString *imageName = props[@"imageName"];
-			NSString *defaultsKey = props[@"defaultsKey"];
-			id value = props[@"value"];
-			BOOL isWordmarkCommand = SCIIsWordmarkMenuCommand(props);
+	setting.icon = icon;
+	setting.navSections = navSections;
 
-			UIAction *action = [UIAction actionWithTitle:title image:[UIImage systemImageNamed:imageName] identifier:nil handler:^(__kindof UIAction * _Nonnull action) {
-				if (defaultsKey) {
-					[SCIUtils setPref:value forKey:defaultsKey];
-				}
+	return setting;
+}
 
-				if (isWordmarkCommand) {
-					NSString *displayTitle = SCIWordmarkDisplayTitleForValue(value, title);
-					[[NSNotificationCenter defaultCenter] postNotificationName:@"SCIWordmarkVariantDidChangeNotification"
-																object:nil
-															  userInfo:@{ @"title": displayTitle }];
-				}
++ (instancetype)navigationCellWithTitle:(NSString *)title
+						   subtitle:(NSString *)subtitle
+							   icon:(nullable SCISymbol *)icon
+					 viewController:(UIViewController *)viewController
+{
+	SCISetting *setting = [[self alloc] initWithType:SCITableCellNavigation];
 
-				if (props[@"handler"]) {
-					void (^handler)(void) = props[@"handler"];
-					handler();
-				}
-			}];
+	setting.title = title;
+	setting.subtitle = subtitle;
 
-			if ([value isEqual:[SCIUtils getPref:defaultsKey]]) {
-				action.state = UIMenuElementStateOn;
-			}
+	setting.icon = icon;
+	setting.navViewController = viewController;
 
-			[elements addObject:action];
+	return setting;
+}
+
+
+// MARK: -  Instance methods
+
+- (UIMenu *)menuForButton:(UIButton *)button {
+	return [self submenuForButton:button submenu:self.baseMenu];
+}
+
+- (UIMenu *)submenuForButton:(UIButton *)button submenu:(UIMenu*)submenu {
+	NSMutableArray<UIMenuElement *> *children = [NSMutableArray array];
+
+	for (id obj in submenu.children) {
+		// Handle recursive submenus
+		if ([obj isKindOfClass:[UIMenu class]]) {
+			[children addObject:[self submenuForButton:button submenu:(UIMenu *)obj]];
+			continue;
+		}
+		else if (![obj isKindOfClass:[UICommand class]]) {
+			continue;
 		}
 
-		return [UIMenu menuWithChildren:elements];
+		UICommand *child = obj;
+		NSDictionary *props = [child.propertyList isKindOfClass:NSDictionary.class] ? child.propertyList : nil;
+		NSString *saved = [[NSUserDefaults standardUserDefaults] stringForKey:props[@"defaultsKey"]];
+		NSString *value = [props[@"value"] isKindOfClass:NSString.class] ? props[@"value"] : nil;
+		BOOL isWordmark = SCIIsWordmarkMenuCommand(props);
+		NSString *displayTitle = isWordmark ? SCIWordmarkDisplayTitleForValue(value, child.title) : child.title;
+		NSString *menuTitle = isWordmark ? @"" : (child.title ?: @"");
+
+		UICommand *command = [UICommand commandWithTitle:menuTitle
+										   image:child.image
+									  action:child.action
+								propertyList:child.propertyList];
+
+		if (value.length && [value isEqualToString:saved]) {
+			command.state = UIMenuElementStateOn;
+
+			if (![props[@"noTitle"] boolValue]) {
+				[button setImage:nil forState:UIControlStateNormal];
+				[button setTitle:displayTitle forState:UIControlStateNormal];
+				button.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+				button.titleLabel.numberOfLines = 1;
+				if (button.configuration) {
+					UIButtonConfiguration *cfg = button.configuration;
+					cfg.title = displayTitle;
+					cfg.image = nil;
+					cfg.titleLineBreakMode = NSLineBreakByTruncatingTail;
+					button.configuration = cfg;
+				}
+			}
+		}
+		else {
+			command.state = UIMenuElementStateOff;
+		}
+
+		[children addObject:command];
 	}
 
-	return nil;
-}
-
-// MARK: - - uncachedMenu
-
-- (UIMenu *)uncachedMenu {
-	if (self.menuProvider) {
-		UIDeferredMenuElement *deferred = [UIDeferredMenuElement elementWithUncachedProvider:^(void (^completion)(NSArray<UIMenuElement *> * _Nonnull)) {
-			UIMenu *menu = self.menuProvider();
-			completion(menu.children);
-		}];
-
-		return [UIMenu menuWithChildren:@[deferred]];
-	}
-
-	return nil;
+	UIMenuOptions options = submenu.options;
+	if (@available(iOS 15.0, *)) options |= UIMenuOptionsSingleSelection;
+	return [UIMenu menuWithTitle:submenu.title image:nil identifier:nil options:options children:children];
 }
 
 @end
