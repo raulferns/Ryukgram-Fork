@@ -1,15 +1,15 @@
 // Standalone "Internal & Dogfood Menus" enabler.
 //
-// This file hooks the native MobileConfig gate (sub_102D81478) and the employee
-// check (sub_106FEB960) directly using MSHookFunction. This avoids the previous
-// approach of hooking XPluginsGetDataFuncOrAbort with fishhook, which caused UI
-// freezes because:
-//   1. rebind_symbols was called on the main thread during a tap handler
-//   2. The mock function pointer chain didn't account for all callers
+// This file hooks XPluginsGetDataFuncOrAbort with fishhook to resolve the MobileConfig
+// gate (paramID 1681030145) to 1. This avoids using MSHookFunction on __TEXT pages
+// which is unsafe and crashes in non-jailbroken/sideloaded (LiveContainer) environments.
 //
-// The direct function hooks are installed at %ctor (safe: they only replace the
-// return value of tiny leaf functions) and the ObjC hooks are applied lazily
-// when the user taps the Internal Settings row (since the classes must be loaded).
+// Fishhook works by replacing dynamic loader bindings in the writable GOT (__DATA),
+// which is 100% safe for sideloading.
+//
+// ObjC graphql employee-spoofing hooks are installed lazily when tapping
+// "Internal Settings" to avoid launch-time overhead. Unrecognized selector guards
+// are implemented on mock classes to prevent any potential crash.
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -17,85 +17,50 @@
 #import "../../Utils.h"
 #import "../Gating/SCIRuntimeBoolForce.h"
 #import "SCIInternalMenusForce.h"
+#import "../../../modules/fishhook/fishhook.h"
 #import <dlfcn.h>
-#import <mach-o/dyld.h>
 
 // ---------------------------------------------------------------------------
-#pragma mark - Direct function hooks (MSHookFunction on sub_102D81478 & sub_106FEB960)
+#pragma mark - XPlugins / fishhook Gating Hook
 // ---------------------------------------------------------------------------
 
-// sub_102D81478: the MobileConfig gate.
-// Original: calls sub_10240E200(1681030145) → XPluginsGetDataFuncOrAbort → func() → bool.
-// We replace it to always return 1 (truthy = gate passes).
-typedef uint64_t (*MobileConfigGateFn)(uint64_t);
-static MobileConfigGateFn sOrig_MobileConfigGate = NULL;
+typedef void *(*XPluginsGetDataFuncOrAbortFn)(int paramID);
+typedef void *(*XPluginsGetFunctionPtrFromIDFn)(int socketID, int arg2);
 
-static uint64_t hooked_MobileConfigGate(uint64_t a1) {
-    NSLog(@"[RyukGram] MobileConfigGate(0x%llx) → forced truthy", (unsigned long long)a1);
+static XPluginsGetDataFuncOrAbortFn orig_XPluginsGetDataFuncOrAbort = NULL;
+static XPluginsGetFunctionPtrFromIDFn orig_XPluginsGetFunctionPtrFromID = NULL;
+
+static void dummy_socket_func(void *a __unused, void *b __unused, void *c __unused, void *d __unused) {
+    // No-op to prevent crashes if a socket resolves to NULL
+}
+
+static uint64_t mock_true_func(void) {
     return 1;
 }
 
-// sub_106FEB960: the employee check.
-// Returns: 0 = not employee, 1 = running Sapienz (bypass), 2 = IS employee.
-// We force it to return 2 (is employee) so content builders always populate.
-typedef uint64_t (*EmployeeCheckFn)(void *, void *);
-static EmployeeCheckFn sOrig_EmployeeCheck = NULL;
-
-static uint64_t hooked_EmployeeCheck(void *a1, void *a2) {
-    NSLog(@"[RyukGram] EmployeeCheck → forced 2 (is employee)");
-    return 2;
+static void *custom_XPluginsGetDataFunc(int paramID) {
+    // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
+    if (paramID == 1681030145) {
+        NSLog(@"[RyukGram] XPluginsGetDataFuncOrAbort intercepted for gate 1681030145 -> returning mock_true_func");
+        return (void *)mock_true_func;
+    }
+    if (orig_XPluginsGetDataFuncOrAbort) {
+        return orig_XPluginsGetDataFuncOrAbort(paramID);
+    }
+    return NULL;
 }
 
-// sub_10753CC1C: the DogfoodingSessionsViewControllerSocketWrapper check.
-// This is called for "Logged Out Internal Settings" and can hang when the socket
-// resolution fails. We hook it to always return 1 (socket available).
-typedef uint64_t (*SocketWrapperCheckFn)(uint64_t, uint64_t, uint64_t);
-static SocketWrapperCheckFn sOrig_SocketWrapperCheck = NULL;
-
-static uint64_t hooked_SocketWrapperCheck(uint64_t a1, uint64_t a2, uint64_t a3) {
-    NSLog(@"[RyukGram] SocketWrapperCheck → forced 1 (available)");
-    return 1;
+static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
+    void *res = NULL;
+    if (orig_XPluginsGetFunctionPtrFromID) {
+        res = orig_XPluginsGetFunctionPtrFromID(socketID, arg2);
+    }
+    if (!res) {
+        // Return a dummy function to prevent abort/crash
+        return (void *)dummy_socket_func;
+    }
+    return res;
 }
-
-// ---------------------------------------------------------------------------
-#pragma mark - ASLR helpers
-// ---------------------------------------------------------------------------
-
-// Instagram may be loaded as a dylib inside LiveContainer (not image index 0).
-// We find the correct image by looking for the one whose Mach-O header is at
-// the expected preferred base address (0x100000000 for arm64) after accounting
-// for the slide.
-static intptr_t SCIGetInstagramSlide(void) {
-    static intptr_t slide = 0;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        uint32_t count = _dyld_image_count();
-        for (uint32_t i = 0; i < count; i++) {
-            const char *name = _dyld_get_image_name(i);
-            if (!name) continue;
-            // Match the Instagram binary by name. In LiveContainer it may be
-            // named "Instagram" or end with "/Instagram.app/Instagram".
-            NSString *imageName = [NSString stringWithUTF8String:name];
-            if ([imageName hasSuffix:@"/Instagram"] ||
-                [imageName hasSuffix:@"/Instagram.app/Instagram"] ||
-                [imageName containsString:@"Instagram"]) {
-                slide = _dyld_get_image_vmaddr_slide(i);
-                NSLog(@"[RyukGram] Found Instagram at image %u (%s), slide: 0x%lx", i, name, (long)slide);
-                return;
-            }
-        }
-        // Fallback: try image 0 (standalone jailbreak).
-        slide = _dyld_get_image_vmaddr_slide(0);
-        NSLog(@"[RyukGram] Instagram image not found by name, using image 0 slide: 0x%lx", (long)slide);
-    });
-    return slide;
-}
-
-// Resolve a virtual address from IDA (unslid) to the runtime address.
-static void *SCIResolve(uintptr_t ida_addr) {
-    return (void *)(ida_addr + SCIGetInstagramSlide());
-}
-
 
 // ---------------------------------------------------------------------------
 #pragma mark - GraphQL spoofing (ObjC hooks for IGUser employee fragment)
@@ -113,6 +78,32 @@ static void *SCIResolve(uintptr_t ida_addr) {
 - (NSArray *)accountBadges {
     return @[];
 }
+
+// Safe forwarding to prevent unrecognized selector crashes on mock fragment
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
+    NSMethodSignature *sig = [super methodSignatureForSelector:aSelector];
+    if (!sig) {
+        NSString *selStr = NSStringFromSelector(aSelector);
+        NSUInteger count = 0;
+        for (NSUInteger i = 0; i < selStr.length; i++) {
+            if ([selStr characterAtIndex:i] == ':') {
+                count++;
+            }
+        }
+        NSMutableString *types = [NSMutableString stringWithString:@"@@:"];
+        for (NSUInteger i = 0; i < count; i++) {
+            [types appendString:@"@"];
+        }
+        sig = [NSMethodSignature signatureWithObjCTypes:[types UTF8String]];
+    }
+    return sig;
+}
+
+- (void)forwardInvocation:(NSInvocation *)anInvocation {
+    NSLog(@"[RyukGram] SCIMockEmployeeFragment ignored selector: %@", NSStringFromSelector(anInvocation.selector));
+    id nilVal = nil;
+    [anInvocation setReturnValue:&nilVal];
+}
 @end
 
 @interface SCIMockAvailabilityModel : NSObject
@@ -122,6 +113,32 @@ static void *SCIResolve(uintptr_t ida_addr) {
 @implementation SCIMockAvailabilityModel
 - (id)asIGUserIsEmployeeOrTestUserFragment {
     return [SCIMockEmployeeFragment new];
+}
+
+// Safe forwarding to prevent unrecognized selector crashes on mock model
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
+    NSMethodSignature *sig = [super methodSignatureForSelector:aSelector];
+    if (!sig) {
+        NSString *selStr = NSStringFromSelector(aSelector);
+        NSUInteger count = 0;
+        for (NSUInteger i = 0; i < selStr.length; i++) {
+            if ([selStr characterAtIndex:i] == ':') {
+                count++;
+            }
+        }
+        NSMutableString *types = [NSMutableString stringWithString:@"@@:"];
+        for (NSUInteger i = 0; i < count; i++) {
+            [types appendString:@"@"];
+        }
+        sig = [NSMethodSignature signatureWithObjCTypes:[types UTF8String]];
+    }
+    return sig;
+}
+
+- (void)forwardInvocation:(NSInvocation *)anInvocation {
+    NSLog(@"[RyukGram] SCIMockAvailabilityModel ignored selector: %@", NSStringFromSelector(anInvocation.selector));
+    id nilVal = nil;
+    [anInvocation setReturnValue:&nilVal];
 }
 @end
 
@@ -206,34 +223,21 @@ NSString *SCIInternalMenusForceApplyNow(void) {
 }
 
 // ---------------------------------------------------------------------------
-#pragma mark - %ctor: Install direct function hooks at load time
+#pragma mark - %ctor: Install fishhook dynamic bindings at startup
 // ---------------------------------------------------------------------------
-// These three function hooks are safe at %ctor because they only change the
-// return value of small, self-contained functions. They do not call into the
-// ObjC runtime, XPlugins, or FBAnalytics — avoiding the deadlock that the
-// previous fishhook-based approach caused.
 
 %ctor {
     @autoreleasepool {
-        // Hook sub_102D81478 (MobileConfig gate: calls XPluginsGetDataFuncOrAbort(1681030145))
-        void *mobileConfigGateAddr = SCIResolve(0x102D81478);
-        if (mobileConfigGateAddr) {
-            MSHookFunction(mobileConfigGateAddr, (void *)hooked_MobileConfigGate, (void **)&sOrig_MobileConfigGate);
-            NSLog(@"[RyukGram] Hooked MobileConfigGate at %p", mobileConfigGateAddr);
-        }
+        struct rebinding rebs[2];
+        rebs[0].name = "XPluginsGetDataFuncOrAbort";
+        rebs[0].replacement = (void *)custom_XPluginsGetDataFunc;
+        rebs[0].replaced = (void **)&orig_XPluginsGetDataFuncOrAbort;
 
-        // Hook sub_106FEB960 (Employee check: queries GraphQL + MobileConfig)
-        void *employeeCheckAddr = SCIResolve(0x106FEB960);
-        if (employeeCheckAddr) {
-            MSHookFunction(employeeCheckAddr, (void *)hooked_EmployeeCheck, (void **)&sOrig_EmployeeCheck);
-            NSLog(@"[RyukGram] Hooked EmployeeCheck at %p", employeeCheckAddr);
-        }
+        rebs[1].name = "XPluginsGetFunctionPtrFromID";
+        rebs[1].replacement = (void *)custom_XPluginsGetFunctionPtrFromID;
+        rebs[1].replaced = (void **)&orig_XPluginsGetFunctionPtrFromID;
 
-        // Hook sub_10753CC1C (DogfoodingSessionsViewControllerSocketWrapper check)
-        void *socketWrapperCheckAddr = SCIResolve(0x10753CC1C);
-        if (socketWrapperCheckAddr) {
-            MSHookFunction(socketWrapperCheckAddr, (void *)hooked_SocketWrapperCheck, (void **)&sOrig_SocketWrapperCheck);
-            NSLog(@"[RyukGram] Hooked SocketWrapperCheck at %p", socketWrapperCheckAddr);
-        }
+        int rc = rebind_symbols(rebs, 2);
+        NSLog(@"[RyukGram] fishhook resolved bindings for XPlugins, rc = %d", rc);
     }
 }
