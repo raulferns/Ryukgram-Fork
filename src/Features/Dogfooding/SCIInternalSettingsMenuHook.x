@@ -14,6 +14,7 @@
 #import "SCIInternalGatePrefs.h"
 #import "../../Utils.h"
 #import "SCIInternalMenusForce.h"
+#import "SCIInternalMenusLauncher.h"
 
 #define ILOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] InternalMenu " fmt, ##__VA_ARGS__)
 
@@ -111,9 +112,19 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
     } @catch (__unused id e) {}
     
     if (cell && SCICellContainsText(cell, @"Internal Settings")) {
-        ILOG("intercepted Internal Settings tap — applying ObjC employee hooks");
+        ILOG("intercepted Internal Settings tap — opening directly via URL router");
         (void)SCIInternalMenusForceApplyNow();
+        [SCIInternalMenusLauncher openInternalURLString:@"instagram://internal_settings"];
+        return; // Skip native employee checks completely!
     }
+    
+    if (cell && SCICellContainsText(cell, @"Dogfooding Assistant")) {
+        ILOG("intercepted Dogfooding Assistant tap — opening directly via URL router");
+        (void)SCIInternalMenusForceApplyNow();
+        [SCIInternalMenusLauncher openInternalURLString:@"instagram://dogfooding_assistant"];
+        return; // Skip native employee checks completely!
+    }
+    
     %orig;
 }
 

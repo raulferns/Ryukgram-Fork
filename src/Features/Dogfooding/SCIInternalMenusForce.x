@@ -39,10 +39,11 @@ static uint64_t mock_true_func(void) {
     return 1;
 }
 
+static BOOL cached_force_internal = NO;
+
 static void *custom_XPluginsGetDataFunc(int paramID) {
     // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
-    if (paramID == 1681030145 && [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"]) {
-        NSLog(@"[RyukGram] XPluginsGetDataFuncOrAbort intercepted for gate 1681030145 -> returning mock_true_func");
+    if (paramID == 1681030145 && cached_force_internal) {
         return (void *)mock_true_func;
     }
     if (orig_XPluginsGetDataFuncOrAbort) {
@@ -57,7 +58,6 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
         res = orig_XPluginsGetFunctionPtrFromID(socketID, arg2);
     }
     if (!res) {
-        // Return a dummy function to prevent abort/crash
         return (void *)dummy_socket_func;
     }
     return res;
@@ -77,50 +77,40 @@ static id mock_graphQLID(id self, SEL _cmd) {
 
 static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
     static Class mockCls = Nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        // Try the IG base class first; fall back to NSObject if it's not loadable
-        // (dynamically-generated GraphQL classes may not be available for subclassing).
+    if (!mockCls) {
         Class baseCls = NSClassFromString(@"IGUserIsEmployeeOrTestUserFragmentImpl");
-        if (!baseCls) baseCls = [NSObject class];
-
-        // Use PID-based unique name to prevent objc_allocateClassPair failure
-        // from duplicate class registration across LiveContainer app restarts.
-        char clsName[64];
-        snprintf(clsName, sizeof(clsName), "SCIMockEmployeeFragment_%d", getpid());
-        mockCls = objc_allocateClassPair(baseCls, clsName, 0);
-        if (mockCls) {
-            class_addMethod(mockCls, @selector(isEmployee), (IMP)mock_return_yes, "B@:");
-            class_addMethod(mockCls, @selector(isTestUser), (IMP)mock_return_yes, "B@:");
-            class_addMethod(mockCls, @selector(accountBadges), (IMP)mock_accountBadges, "@@:");
-            class_addMethod(mockCls, @selector(graphQLID), (IMP)mock_graphQLID, "@@:");
-            objc_registerClassPair(mockCls);
-            NSLog(@"[RyukGram] Created mock employee fragment class: %s (base: %@)", clsName, NSStringFromClass(baseCls));
-        } else {
-            NSLog(@"[RyukGram] WARN: objc_allocateClassPair failed for %s", clsName);
+        if (baseCls) {
+            char clsName[64];
+            snprintf(clsName, sizeof(clsName), "SCIMockEmployeeFragment_%d", getpid());
+            mockCls = objc_allocateClassPair(baseCls, clsName, 0);
+            if (mockCls) {
+                class_addMethod(mockCls, @selector(isEmployee), (IMP)mock_return_yes, "B@:");
+                class_addMethod(mockCls, @selector(isTestUser), (IMP)mock_return_yes, "B@:");
+                class_addMethod(mockCls, @selector(accountBadges), (IMP)mock_accountBadges, "@@:");
+                class_addMethod(mockCls, @selector(graphQLID), (IMP)mock_graphQLID, "@@:");
+                objc_registerClassPair(mockCls);
+                NSLog(@"[RyukGram] Created mock employee fragment class: %s (base: %@)", clsName, NSStringFromClass(baseCls));
+            }
         }
-    });
+    }
     return mockCls ? [[mockCls alloc] init] : nil;
 }
 
 static id new_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SEL _cmd) {
     static Class mockCls = Nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
+    if (!mockCls) {
         Class baseCls = NSClassFromString(@"IGInternalSettingsAvailabilityFragmentImpl");
-        if (!baseCls) baseCls = [NSObject class];
-
-        char clsName[64];
-        snprintf(clsName, sizeof(clsName), "SCIMockAvailabilityModel_%d", getpid());
-        mockCls = objc_allocateClassPair(baseCls, clsName, 0);
-        if (mockCls) {
-            class_addMethod(mockCls, NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment"), (IMP)new_asIGUserIsEmployeeOrTestUserFragment, "@@:");
-            objc_registerClassPair(mockCls);
-            NSLog(@"[RyukGram] Created mock availability model class: %s (base: %@)", clsName, NSStringFromClass(baseCls));
-        } else {
-            NSLog(@"[RyukGram] WARN: objc_allocateClassPair failed for %s", clsName);
+        if (baseCls) {
+            char clsName[64];
+            snprintf(clsName, sizeof(clsName), "SCIMockAvailabilityModel_%d", getpid());
+            mockCls = objc_allocateClassPair(baseCls, clsName, 0);
+            if (mockCls) {
+                class_addMethod(mockCls, NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment"), (IMP)new_asIGUserIsEmployeeOrTestUserFragment, "@@:");
+                objc_registerClassPair(mockCls);
+                NSLog(@"[RyukGram] Created mock availability model class: %s (base: %@)", clsName, NSStringFromClass(baseCls));
+            }
         }
-    });
+    }
     return mockCls ? [[mockCls alloc] init] : nil;
 }
 
@@ -183,6 +173,7 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
 }
 
 NSString *SCIInternalMenusForceApplyNow(void) {
+    cached_force_internal = [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"];
     NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
     return [NSString stringWithFormat:@"Installed %lu ObjC employee/dogfooding hooks for this session.", (unsigned long)installed];
 }
@@ -205,8 +196,10 @@ NSString *SCIInternalMenusForceApplyNow(void) {
         int rc = rebind_symbols(rebs, 2);
         NSLog(@"[RyukGram] fishhook resolved bindings for XPlugins, rc = %d", rc);
         
+        cached_force_internal = [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"];
+        
         // Install ObjC hooks at launch to prevent deadlocks from MSHookMessageEx on the UI thread
-        if ([SCIUtils getBoolPref:@"sci_force_internal_settings_menu"]) {
+        if (cached_force_internal) {
             NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
             NSLog(@"[RyukGram] Installed %lu internal menu runtime hooks at launch", (unsigned long)installed);
         }
