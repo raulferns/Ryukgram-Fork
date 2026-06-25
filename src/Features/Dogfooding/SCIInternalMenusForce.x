@@ -76,40 +76,63 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
 }
 
 // ---------------------------------------------------------------------------
-#pragma mark - Employee Status Hook (sub_106FEB960)
+#pragma mark - Employee Status Hook (sub_106FEB960) via GOT fishhook
 // ---------------------------------------------------------------------------
 //
 // IDA PROOF: sub_107556A84 (Internal Settings opener) at 0x107556abc calls
 // sub_106FEB960(fragment). Returns 0=Available, 2=Denied.
-// We hook it at its ASLR-slid address to always return 0.
-// Using MSHookFunction via Substrate which handles __TEXT correctly on arm64.
+// Inside sub_106FEB960 at 0x106feb99c: calls FBEndToEndIsRunningJestE2E().
+// If FBEndToEndIsRunningJestE2E() returns 1 -> sub_106FEB960 returns 0 (Available).
 //
-// The static offset from mach-o load address is: 0x106FEB960 - 0x100000000 = 0x6FEB960
+// We safely fishhook FBEndToEndIsRunningJestE2E and FBEndToEndIsRunningSapienz 
+// (which are thunks to imported C functions in GOT) and verify that the call
+// originates from within the address range of sub_106FEB960.
+// This is 100% safe, doesn't use MSHookFunction on __TEXT, and prevents launch crash.
 
-#define kEmployeeCheckOffset 0x6FEB960UL
+static intptr_t main_binary_slide = 0;
 
-typedef long (*EmployeeCheckFn)(void *a1, void *a2);
-static EmployeeCheckFn orig_employeeCheck = NULL;
+typedef int (*FBEndToEndIsRunningJestE2EFn)(void);
+typedef int (*FBEndToEndIsRunningSapienzFn)(void *a1);
 
-static long replacement_employeeCheck(void *a1, void *a2) {
-    // IDA: return 0 = Available. The caller (sub_107556A84) proceeds to open
-    // Internal Settings VC when this returns 0.
-    NSLog(@"[RyukGram] employee check intercepted -> returning 0 (Available)");
+static FBEndToEndIsRunningJestE2EFn orig_FBEndToEndIsRunningJestE2E = NULL;
+static FBEndToEndIsRunningSapienzFn orig_FBEndToEndIsRunningSapienz = NULL;
+
+static int custom_FBEndToEndIsRunningJestE2E(void) {
+    if (cached_force_internal) {
+        void *ret_addr = __builtin_return_address(0);
+        if (main_binary_slide != 0) {
+            uintptr_t start = main_binary_slide + 0x6FEB960;
+            uintptr_t end = start + 0x9c;
+            uintptr_t ip = (uintptr_t)ret_addr;
+            if (ip >= start && ip <= end) {
+                NSLog(@"[RyukGram] FBEndToEndIsRunningJestE2E called from sub_106FEB960 -> returning 1");
+                return 1;
+            }
+        }
+    }
+    if (orig_FBEndToEndIsRunningJestE2E) {
+        return orig_FBEndToEndIsRunningJestE2E();
+    }
     return 0;
 }
 
-static void SCIInstallEmployeeCheckHook(void) {
-    // Compute the ASLR slide: get the slide of the main Instagram executable.
-    // Instagram is always image index 0 in the dyld image list (the main binary).
-    intptr_t slide = _dyld_get_image_vmaddr_slide(0);
-    void *targetAddr = (void *)(slide + kEmployeeCheckOffset);
-    NSLog(@"[RyukGram] Hooking employee check at %p (slide=0x%lx)", targetAddr, slide);
-    MSHookFunction(targetAddr, (void *)replacement_employeeCheck, (void **)&orig_employeeCheck);
-    if (orig_employeeCheck) {
-        NSLog(@"[RyukGram] Employee check hook installed successfully");
-    } else {
-        NSLog(@"[RyukGram] WARN: MSHookFunction did not set orig for employee check");
+static int custom_FBEndToEndIsRunningSapienz(void *a1) {
+    if (cached_force_internal) {
+        void *ret_addr = __builtin_return_address(0);
+        if (main_binary_slide != 0) {
+            uintptr_t start = main_binary_slide + 0x6FEB960;
+            uintptr_t end = start + 0x9c;
+            uintptr_t ip = (uintptr_t)ret_addr;
+            if (ip >= start && ip <= end) {
+                NSLog(@"[RyukGram] FBEndToEndIsRunningSapienz called from sub_106FEB960 -> returning 0");
+                return 0;
+            }
+        }
     }
+    if (orig_FBEndToEndIsRunningSapienz) {
+        return orig_FBEndToEndIsRunningSapienz(a1);
+    }
+    return 0;
 }
 
 
@@ -155,12 +178,8 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
 
 NSString *SCIInternalMenusForceApplyNow(void) {
     cached_force_internal = [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"];
-    // Install the IDA-verified employee check hook (sub_106FEB960) if not already installed
-    if (!orig_employeeCheck) {
-        SCIInstallEmployeeCheckHook();
-    }
     NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
-    return [NSString stringWithFormat:@"Installed employee hook + %lu ObjC hooks.", (unsigned long)installed];
+    return [NSString stringWithFormat:@"Forced internal settings: %d, installed %lu ObjC hooks.", cached_force_internal, (unsigned long)installed];
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +188,9 @@ NSString *SCIInternalMenusForceApplyNow(void) {
 
 %ctor {
     @autoreleasepool {
-        struct rebinding rebs[2];
+        main_binary_slide = _dyld_get_image_vmaddr_slide(0);
+
+        struct rebinding rebs[4];
         rebs[0].name = "XPluginsGetDataFuncOrAbort";
         rebs[0].replacement = (void *)custom_XPluginsGetDataFunc;
         rebs[0].replaced = (void **)&orig_XPluginsGetDataFuncOrAbort;
@@ -178,17 +199,22 @@ NSString *SCIInternalMenusForceApplyNow(void) {
         rebs[1].replacement = (void *)custom_XPluginsGetFunctionPtrFromID;
         rebs[1].replaced = (void **)&orig_XPluginsGetFunctionPtrFromID;
 
-        int rc = rebind_symbols(rebs, 2);
-        NSLog(@"[RyukGram] fishhook resolved bindings for XPlugins, rc = %d", rc);
+        rebs[2].name = "FBEndToEndIsRunningJestE2E";
+        rebs[2].replacement = (void *)custom_FBEndToEndIsRunningJestE2E;
+        rebs[2].replaced = (void **)&orig_FBEndToEndIsRunningJestE2E;
+
+        rebs[3].name = "FBEndToEndIsRunningSapienz";
+        rebs[3].replacement = (void *)custom_FBEndToEndIsRunningSapienz;
+        rebs[3].replaced = (void **)&orig_FBEndToEndIsRunningSapienz;
+
+        int rc = rebind_symbols(rebs, 4);
+        NSLog(@"[RyukGram] fishhook resolved bindings, rc = %d", rc);
         
         cached_force_internal = [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"];
         
         if (cached_force_internal) {
-            // IDA-verified: hook sub_106FEB960 (employee validator called at tap time in
-            // sub_107556A84 at 0x107556abc). Must be installed at launch before any tap.
-            SCIInstallEmployeeCheckHook();
             NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
-            NSLog(@"[RyukGram] Installed employee hook + %lu ObjC runtime hooks at launch", (unsigned long)installed);
+            NSLog(@"[RyukGram] Installed %lu ObjC runtime hooks at launch", (unsigned long)installed);
         }
     }
 }
