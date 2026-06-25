@@ -1,8 +1,11 @@
 // SCIInternalSettingsMenuHook.x
 // Stable ABI hooks for Instagram's own internal settings entry in the bug reporter menu.
 // Validated against Instagram(32): IGBugReporterMenu.IGBugReportMenuViewController
-// exposes initWithDeviceSession:...showInternalSettings:showLoggedOutInternalSettings:showShake...
-// and getters showInternalSettings/showLoggedOutInternalSettings/showShakeToReportPreferenceToggle/showDogfoodingAssistant.
+//
+// IMPORTANT: The binary reads `internalSettingsAvailabilityStatus` as a raw ivar
+// (LDR from _OBJC_IVAR_$_...internalSettingsAvailabilityStatus offset), bypassing
+// any ObjC getter. The getter hooks are kept as fallbacks, but the real fix is
+// the viewDidLoad hook that writes 0 directly into the ivar via ivar_getOffset.
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -27,6 +30,24 @@ static Class SCIInternalMenuClass(void) {
     return C;
 }
 
+// Write a raw long value directly into an instance ivar by name.
+// Returns YES if the ivar was found and patched.
+static BOOL SCIPatchIvarToLong(id obj, const char *ivarName, long value) {
+    Ivar ivar = class_getInstanceVariable(object_getClass(obj), ivarName);
+    if (!ivar) return NO;
+    ptrdiff_t offset = ivar_getOffset(ivar);
+    *(long *)((uint8_t *)(__bridge void *)obj + offset) = value;
+    return YES;
+}
+
+// Write a raw BOOL (1 byte) directly into an instance ivar by name.
+static BOOL SCIPatchIvarToBool(id obj, const char *ivarName, BOOL value) {
+    Ivar ivar = class_getInstanceVariable(object_getClass(obj), ivarName);
+    if (!ivar) return NO;
+    ptrdiff_t offset = ivar_getOffset(ivar);
+    *(BOOL *)((uint8_t *)(__bridge void *)obj + offset) = value;
+    return YES;
+}
 
 static BOOL SCICellContainsText(UIView *view, NSString *text) {
     if ([view isKindOfClass:NSClassFromString(@"UILabel")]) {
@@ -63,9 +84,28 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
     return %orig;
 }
 
+// Getter fallback — some code paths may still call the getter.
 - (long)internalSettingsAvailabilityStatus {
     if (SCIInternalMenuEnabled()) return 0;
     return %orig;
+}
+
+// The binary reads internalSettingsAvailabilityStatus, showInternalSettings, etc.
+// as raw ivars (LDR from ivar offset), bypassing ObjC getters entirely.
+// Patch them directly once the view is loaded so that didSelectRowAtIndexPath:
+// and the subtitle builder both see the correct values.
+- (void)viewDidLoad {
+    %orig;
+    if (SCIInternalMenuEnabled()) {
+        BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
+        SCIPatchIvarToBool(self, "showInternalSettings", YES);
+        SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
+        SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
+        if (SCIInternalMenuLoggedOutEnabled()) {
+            SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
+        }
+        ILOG("viewDidLoad: patched ivars directly (status=%s)", patched ? "OK" : "MISS");
+    }
 }
 
 - (void)tableView:(id)tableView didSelectRowAtIndexPath:(id)indexPath {
