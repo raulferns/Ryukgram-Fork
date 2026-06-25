@@ -45,6 +45,9 @@ typedef void *(*XPluginsGetFunctionPtrFromIDFn)(int socketID, int arg2);
 static XPluginsGetDataFuncOrAbortFn orig_XPluginsGetDataFuncOrAbort = NULL;
 static XPluginsGetFunctionPtrFromIDFn orig_XPluginsGetFunctionPtrFromID = NULL;
 
+static uintptr_t get_instagram_base_address(void);
+
+
 static void dummy_socket_func(void *a __unused, void *b __unused, void *c __unused, void *d __unused) {
     // No-op to prevent crashes if a socket resolves to NULL
 }
@@ -65,7 +68,10 @@ static const void *mock_true_func(void) {
 static void *custom_XPluginsGetDataFunc(int paramID) {
     // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
     if (paramID == 1681030145 && [SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wframe-address"
         void *ret2 = __builtin_return_address(2);
+#pragma clang diagnostic pop
         uintptr_t base = get_instagram_base_address();
         if (base != 0) {
             uintptr_t offset2 = (uintptr_t)ret2 - base;
