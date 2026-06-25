@@ -19,6 +19,7 @@
 #import "SCIInternalMenusForce.h"
 #import "../../../modules/fishhook/fishhook.h"
 #import <dlfcn.h>
+#import <unistd.h>
 
 // ---------------------------------------------------------------------------
 #pragma mark - XPlugins / fishhook Gating Hook
@@ -78,16 +79,25 @@ static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
     static Class mockCls = Nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        // Try the IG base class first; fall back to NSObject if it's not loadable
+        // (dynamically-generated GraphQL classes may not be available for subclassing).
         Class baseCls = NSClassFromString(@"IGUserIsEmployeeOrTestUserFragmentImpl");
-        if (baseCls) {
-            mockCls = objc_allocateClassPair(baseCls, "SCIDynamicMockEmployeeFragment", 0);
-            if (mockCls) {
-                class_addMethod(mockCls, @selector(isEmployee), (IMP)mock_return_yes, "B@:");
-                class_addMethod(mockCls, @selector(isTestUser), (IMP)mock_return_yes, "B@:");
-                class_addMethod(mockCls, @selector(accountBadges), (IMP)mock_accountBadges, "@@:");
-                class_addMethod(mockCls, @selector(graphQLID), (IMP)mock_graphQLID, "@@:");
-                objc_registerClassPair(mockCls);
-            }
+        if (!baseCls) baseCls = [NSObject class];
+
+        // Use PID-based unique name to prevent objc_allocateClassPair failure
+        // from duplicate class registration across LiveContainer app restarts.
+        char clsName[64];
+        snprintf(clsName, sizeof(clsName), "SCIMockEmployeeFragment_%d", getpid());
+        mockCls = objc_allocateClassPair(baseCls, clsName, 0);
+        if (mockCls) {
+            class_addMethod(mockCls, @selector(isEmployee), (IMP)mock_return_yes, "B@:");
+            class_addMethod(mockCls, @selector(isTestUser), (IMP)mock_return_yes, "B@:");
+            class_addMethod(mockCls, @selector(accountBadges), (IMP)mock_accountBadges, "@@:");
+            class_addMethod(mockCls, @selector(graphQLID), (IMP)mock_graphQLID, "@@:");
+            objc_registerClassPair(mockCls);
+            NSLog(@"[RyukGram] Created mock employee fragment class: %s (base: %@)", clsName, NSStringFromClass(baseCls));
+        } else {
+            NSLog(@"[RyukGram] WARN: objc_allocateClassPair failed for %s", clsName);
         }
     });
     return mockCls ? [[mockCls alloc] init] : nil;
@@ -98,12 +108,17 @@ static id new_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SE
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         Class baseCls = NSClassFromString(@"IGInternalSettingsAvailabilityFragmentImpl");
-        if (baseCls) {
-            mockCls = objc_allocateClassPair(baseCls, "SCIDynamicMockAvailabilityModel", 0);
-            if (mockCls) {
-                class_addMethod(mockCls, NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment"), (IMP)new_asIGUserIsEmployeeOrTestUserFragment, "@@:");
-                objc_registerClassPair(mockCls);
-            }
+        if (!baseCls) baseCls = [NSObject class];
+
+        char clsName[64];
+        snprintf(clsName, sizeof(clsName), "SCIMockAvailabilityModel_%d", getpid());
+        mockCls = objc_allocateClassPair(baseCls, clsName, 0);
+        if (mockCls) {
+            class_addMethod(mockCls, NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment"), (IMP)new_asIGUserIsEmployeeOrTestUserFragment, "@@:");
+            objc_registerClassPair(mockCls);
+            NSLog(@"[RyukGram] Created mock availability model class: %s (base: %@)", clsName, NSStringFromClass(baseCls));
+        } else {
+            NSLog(@"[RyukGram] WARN: objc_allocateClassPair failed for %s", clsName);
         }
     });
     return mockCls ? [[mockCls alloc] init] : nil;
