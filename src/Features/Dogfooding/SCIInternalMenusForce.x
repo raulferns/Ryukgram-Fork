@@ -89,8 +89,6 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
 // originates from within the address range of sub_106FEB960.
 // This is 100% safe, doesn't use MSHookFunction on __TEXT, and prevents launch crash.
 
-static intptr_t main_binary_slide = 0;
-
 typedef int (*FBEndToEndIsRunningJestE2EFn)(void);
 typedef int (*FBEndToEndIsRunningSapienzFn)(void *a1);
 
@@ -100,8 +98,9 @@ static FBEndToEndIsRunningSapienzFn orig_FBEndToEndIsRunningSapienz = NULL;
 static int custom_FBEndToEndIsRunningJestE2E(void) {
     if (cached_force_internal) {
         void *ret_addr = __builtin_return_address(0);
-        if (main_binary_slide != 0) {
-            uintptr_t start = main_binary_slide + 0x6FEB960;
+        uintptr_t base = (uintptr_t)_dyld_get_image_header(0);
+        if (base != 0) {
+            uintptr_t start = base + 0x6FEB960;
             uintptr_t end = start + 0x9c;
             uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
@@ -119,8 +118,9 @@ static int custom_FBEndToEndIsRunningJestE2E(void) {
 static int custom_FBEndToEndIsRunningSapienz(void *a1) {
     if (cached_force_internal) {
         void *ret_addr = __builtin_return_address(0);
-        if (main_binary_slide != 0) {
-            uintptr_t start = main_binary_slide + 0x6FEB960;
+        uintptr_t base = (uintptr_t)_dyld_get_image_header(0);
+        if (base != 0) {
+            uintptr_t start = base + 0x6FEB960;
             uintptr_t end = start + 0x9c;
             uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
@@ -188,8 +188,6 @@ NSString *SCIInternalMenusForceApplyNow(void) {
 
 %ctor {
     @autoreleasepool {
-        main_binary_slide = _dyld_get_image_vmaddr_slide(0);
-
         struct rebinding rebs[4];
         rebs[0].name = "XPluginsGetDataFuncOrAbort";
         rebs[0].replacement = (void *)custom_XPluginsGetDataFunc;
