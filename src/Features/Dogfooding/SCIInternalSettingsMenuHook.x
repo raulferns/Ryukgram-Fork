@@ -7,6 +7,7 @@
 // any ObjC getter. The getter hooks are kept as fallbacks, but the real fix is
 // the viewDidLoad hook that writes 0 directly into the ivar via ivar_getOffset.
 
+#import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <substrate.h>
@@ -114,7 +115,6 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
 // Patch them directly once the view is loaded so that didSelectRowAtIndexPath:
 // and the subtitle builder both see the correct values.
 - (void)viewDidLoad {
-    %orig;
     if (SCIInternalMenuEnabled()) {
         BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
         SCIPatchIvarToBool(self, "showInternalSettings", YES);
@@ -123,16 +123,25 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
         if (SCIInternalMenuLoggedOutEnabled()) {
             SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
         }
-        ILOG("viewDidLoad: patched ivars directly (status=%s)", patched ? "OK" : "MISS");
+        ILOG("viewDidLoad: patched ivars directly before orig (status=%s)", patched ? "OK" : "MISS");
+    }
+    %orig;
+    if (SCIInternalMenuEnabled()) {
         NSString *res = SCIInternalMenusForceApplyNow();
         ILOG("viewDidLoad: applied employee hooks: %s", res.UTF8String);
     }
 }
 
-
-// We let didSelectRowAtIndexPath: execute natively without interception so the native
-// controller presentation flow (which is bypassed by our fishhook) runs.
-
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    ILOG("tableView:didSelectRowAtIndexPath: section=%ld, row=%ld", (long)indexPath.section, (long)indexPath.row);
+    if (SCIInternalMenuEnabled()) {
+        SCISetDuringBugReportMenuTapHandler(YES);
+    }
+    %orig(tableView, indexPath);
+    if (SCIInternalMenuEnabled()) {
+        SCISetDuringBugReportMenuTapHandler(NO);
+    }
+}
 
 %end
 

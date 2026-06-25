@@ -113,6 +113,16 @@ typedef int (*FBEndToEndIsRunningSapienzFn)(void *a1);
 static FBEndToEndIsRunningJestE2EFn orig_FBEndToEndIsRunningJestE2E = NULL;
 static FBEndToEndIsRunningSapienzFn orig_FBEndToEndIsRunningSapienz = NULL;
 
+static BOOL gSCIDuringBugReportMenuTapHandler = NO;
+
+void SCISetDuringBugReportMenuTapHandler(BOOL during) {
+    gSCIDuringBugReportMenuTapHandler = during;
+}
+
+BOOL SCIIsDuringBugReportMenuTapHandler(void) {
+    return gSCIDuringBugReportMenuTapHandler;
+}
+
 static uintptr_t get_instagram_base_address(void) {
     static uintptr_t cached_base = 0;
     if (cached_base != 0) return cached_base;
@@ -139,16 +149,20 @@ static uintptr_t get_instagram_base_address(void) {
 
 static int custom_FBEndToEndIsRunningJestE2E(void) {
     if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
+        if (gSCIDuringBugReportMenuTapHandler) {
+            os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E MATCH tap time (via flag) -> returning 1");
+            return 1;
+        }
+        
         void *ret_addr = __builtin_return_address(0);
         uintptr_t base = get_instagram_base_address();
-        os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E called, base=%p, ret_addr=%p, offset=0x%lx", (void *)base, ret_addr, (unsigned long)((uintptr_t)ret_addr - base));
         if (base != 0) {
+            uintptr_t ip = (uintptr_t)ret_addr;
             uintptr_t start = base + 0x6FEB960;
             uintptr_t end = start + 0x9c;
-            uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
-                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E MATCH -> returning 1");
-                return 1;
+                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E builder time -> returning 0 to bypass initializer crash");
+                return 0;
             }
         }
     }
