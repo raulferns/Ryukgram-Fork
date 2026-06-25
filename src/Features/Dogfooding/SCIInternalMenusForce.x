@@ -1,19 +1,31 @@
 // Standalone "Internal & Dogfood Menus" enabler.
 //
-// This file hooks XPluginsGetDataFuncOrAbort with fishhook to resolve the MobileConfig
-// gate (paramID 1681030145) to 1. This avoids using MSHookFunction on __TEXT pages
-// which is unsafe and crashes in non-jailbroken/sideloaded (LiveContainer) environments.
+// === IDA-VERIFIED CALL CHAIN ===
+// When "Internal Settings" row (case 4) is tapped in didSelectRowAtIndexPath:
+// (0x100f23ec0), v65 = ivar internalSettingsAvailabilityStatus.
+// If v65 == 0 (Available) -> calls sub_107556A84 (0x107556a84).
+// sub_107556A84 at 0x107556abc calls sub_106FEB960(fragment) -- a SECOND
+// independent employee validator.
+//
+// sub_106FEB960 return values (IDA verified at 0x106feb960):
+//   0 = Available  (v6 = 0 when FBEndToEndIsRunningJestE2E() != 0, OR v2 != 0)
+//   1 = Hidden     (v6 = 1 when FBEndToEndIsRunningSapienz(session) & sub_102D7BFD0())
+//   2 = Denied     (v6 = 2 when v2 == 0 after asIGUserIsEmployeeOrTestUserFragment check)
+//
+// sub_102D7BFD0 calls sub_102D81478 which calls sub_10240E200 which calls
+// XPluginsGetDataFuncOrAbort(1681030145) -- handled by our fishhook.
+//
+// The cleanest fix: directly hook sub_106FEB960 to always return 0 (Available).
+// We use MSHookFunction with ASLR-slide computed from mach_header at runtime.
+// fishhook covers the XPlugins MobileConfig gate as a second layer.
 //
 // Fishhook works by replacing dynamic loader bindings in the writable GOT (__DATA),
 // which is 100% safe for sideloading.
-//
-// ObjC graphql employee-spoofing hooks are installed lazily when tapping
-// "Internal Settings" to avoid launch-time overhead. Unrecognized selector guards
-// are implemented on mock classes to prevent any potential crash.
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <substrate.h>
+#import <mach-o/dyld.h>
 #import "../../Utils.h"
 #import "../Gating/SCIRuntimeBoolForce.h"
 #import "SCIInternalMenusForce.h"
@@ -63,57 +75,42 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
     return res;
 }
 
-static BOOL mock_return_yes(id self, SEL _cmd) {
-    return YES;
+// ---------------------------------------------------------------------------
+#pragma mark - Employee Status Hook (sub_106FEB960)
+// ---------------------------------------------------------------------------
+//
+// IDA PROOF: sub_107556A84 (Internal Settings opener) at 0x107556abc calls
+// sub_106FEB960(fragment). Returns 0=Available, 2=Denied.
+// We hook it at its ASLR-slid address to always return 0.
+// Using MSHookFunction via Substrate which handles __TEXT correctly on arm64.
+//
+// The static offset from mach-o load address is: 0x106FEB960 - 0x100000000 = 0x6FEB960
+
+#define kEmployeeCheckOffset 0x6FEB960UL
+
+typedef long (*EmployeeCheckFn)(void *a1, void *a2);
+static EmployeeCheckFn orig_employeeCheck = NULL;
+
+static long replacement_employeeCheck(void *a1, void *a2) {
+    // IDA: return 0 = Available. The caller (sub_107556A84) proceeds to open
+    // Internal Settings VC when this returns 0.
+    NSLog(@"[RyukGram] employee check intercepted -> returning 0 (Available)");
+    return 0;
 }
 
-static id mock_accountBadges(id self, SEL _cmd) {
-    return @[@"EMPLOYEE", @"employee", @"INTERNAL", @"internal", @"TEST_USER", @"test_user"];
-}
-
-static id mock_graphQLID(id self, SEL _cmd) {
-    return @"90010000000001"; // Guaranteed test user range
-}
-
-static id new_asIGUserIsEmployeeOrTestUserFragment(id self, SEL _cmd) {
-    static Class mockCls = Nil;
-    if (!mockCls) {
-        Class baseCls = NSClassFromString(@"IGUserIsEmployeeOrTestUserFragmentImpl");
-        if (baseCls) {
-            char clsName[64];
-            snprintf(clsName, sizeof(clsName), "SCIMockEmployeeFragment_%d", getpid());
-            mockCls = objc_allocateClassPair(baseCls, clsName, 0);
-            if (mockCls) {
-                class_addMethod(mockCls, @selector(isEmployee), (IMP)mock_return_yes, "B@:");
-                class_addMethod(mockCls, @selector(isTestUser), (IMP)mock_return_yes, "B@:");
-                class_addMethod(mockCls, @selector(accountBadges), (IMP)mock_accountBadges, "@@:");
-                class_addMethod(mockCls, @selector(graphQLID), (IMP)mock_graphQLID, "@@:");
-                objc_registerClassPair(mockCls);
-                NSLog(@"[RyukGram] Created mock employee fragment class: %s (base: %@)", clsName, NSStringFromClass(baseCls));
-            }
-        }
+static void SCIInstallEmployeeCheckHook(void) {
+    // Compute the ASLR slide: get the slide of the main Instagram executable.
+    // Instagram is always image index 0 in the dyld image list (the main binary).
+    intptr_t slide = _dyld_get_image_vmaddr_slide(0);
+    void *targetAddr = (void *)(slide + kEmployeeCheckOffset);
+    NSLog(@"[RyukGram] Hooking employee check at %p (slide=0x%lx)", targetAddr, slide);
+    MSHookFunction(targetAddr, (void *)replacement_employeeCheck, (void **)&orig_employeeCheck);
+    if (orig_employeeCheck) {
+        NSLog(@"[RyukGram] Employee check hook installed successfully");
+    } else {
+        NSLog(@"[RyukGram] WARN: MSHookFunction did not set orig for employee check");
     }
-    return mockCls ? [[mockCls alloc] init] : nil;
 }
-
-static id new_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SEL _cmd) {
-    static Class mockCls = Nil;
-    if (!mockCls) {
-        Class baseCls = NSClassFromString(@"IGInternalSettingsAvailabilityFragmentImpl");
-        if (baseCls) {
-            char clsName[64];
-            snprintf(clsName, sizeof(clsName), "SCIMockAvailabilityModel_%d", getpid());
-            mockCls = objc_allocateClassPair(baseCls, clsName, 0);
-            if (mockCls) {
-                class_addMethod(mockCls, NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment"), (IMP)new_asIGUserIsEmployeeOrTestUserFragment, "@@:");
-                objc_registerClassPair(mockCls);
-                NSLog(@"[RyukGram] Created mock availability model class: %s (base: %@)", clsName, NSStringFromClass(baseCls));
-            }
-        }
-    }
-    return mockCls ? [[mockCls alloc] init] : nil;
-}
-
 
 
 // ---------------------------------------------------------------------------
@@ -122,22 +119,6 @@ static id new_asIGInternalSettingsAvailabilityFragmentImmutableModel(id self, SE
 
 static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
     NSUInteger installed = 0;
-
-    static BOOL didHookGraphQLEmployee = NO;
-    if (!didHookGraphQLEmployee) {
-        Class igUserCls = NSClassFromString(@"IGUser");
-        if (igUserCls) {
-            SEL sel1 = NSSelectorFromString(@"asIGInternalSettingsAvailabilityFragmentImmutableModel");
-            class_replaceMethod(igUserCls, sel1, (IMP)new_asIGInternalSettingsAvailabilityFragmentImmutableModel, "@@:");
-            installed++;
-            
-            SEL sel2 = NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment");
-            class_replaceMethod(igUserCls, sel2, (IMP)new_asIGUserIsEmployeeOrTestUserFragment, "@@:");
-            installed++;
-            
-            didHookGraphQLEmployee = YES;
-        }
-    }
 
     if ([SCIRuntimeBoolForce forceClassNamed:@"IGUser" selector:@"isEmployee" classMethod:NO value:YES]) installed++;
     if ([SCIRuntimeBoolForce forceClassNamed:@"IGUser" selector:@"isTestUser" classMethod:NO value:YES]) installed++;
@@ -174,8 +155,12 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
 
 NSString *SCIInternalMenusForceApplyNow(void) {
     cached_force_internal = [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"];
+    // Install the IDA-verified employee check hook (sub_106FEB960) if not already installed
+    if (!orig_employeeCheck) {
+        SCIInstallEmployeeCheckHook();
+    }
     NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
-    return [NSString stringWithFormat:@"Installed %lu ObjC employee/dogfooding hooks for this session.", (unsigned long)installed];
+    return [NSString stringWithFormat:@"Installed employee hook + %lu ObjC hooks.", (unsigned long)installed];
 }
 
 // ---------------------------------------------------------------------------
@@ -198,10 +183,12 @@ NSString *SCIInternalMenusForceApplyNow(void) {
         
         cached_force_internal = [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"];
         
-        // Install ObjC hooks at launch to prevent deadlocks from MSHookMessageEx on the UI thread
         if (cached_force_internal) {
+            // IDA-verified: hook sub_106FEB960 (employee validator called at tap time in
+            // sub_107556A84 at 0x107556abc). Must be installed at launch before any tap.
+            SCIInstallEmployeeCheckHook();
             NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
-            NSLog(@"[RyukGram] Installed %lu internal menu runtime hooks at launch", (unsigned long)installed);
+            NSLog(@"[RyukGram] Installed employee hook + %lu ObjC runtime hooks at launch", (unsigned long)installed);
         }
     }
 }
