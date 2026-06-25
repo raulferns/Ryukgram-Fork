@@ -88,23 +88,49 @@ static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
 // originates from within the address range of sub_106FEB960.
 // This is 100% safe, doesn't use MSHookFunction on __TEXT, and prevents launch crash.
 
+#import <os/log.h>
+
 typedef int (*FBEndToEndIsRunningJestE2EFn)(void);
 typedef int (*FBEndToEndIsRunningSapienzFn)(void *a1);
 
 static FBEndToEndIsRunningJestE2EFn orig_FBEndToEndIsRunningJestE2E = NULL;
 static FBEndToEndIsRunningSapienzFn orig_FBEndToEndIsRunningSapienz = NULL;
 
+static uintptr_t get_instagram_base_address(void) {
+    static uintptr_t cached_base = 0;
+    if (cached_base != 0) return cached_base;
+    
+    uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; i++) {
+        const char *name = _dyld_get_image_name(i);
+        if (name) {
+            size_t len = strlen(name);
+            if ((len >= 10 && strcmp(name + len - 10, "/Instagram") == 0) || strcmp(name, "Instagram") == 0) {
+                cached_base = (uintptr_t)_dyld_get_image_header(i);
+                os_log(OS_LOG_DEFAULT, "[SCIGate] Found Instagram binary at index %u, base = %p", i, (void *)cached_base);
+                break;
+            }
+        }
+    }
+    
+    if (cached_base == 0) {
+        cached_base = (uintptr_t)_dyld_get_image_header(0);
+        os_log(OS_LOG_DEFAULT, "[SCIGate] WARNING: Instagram binary not found by name, falling back to index 0: %p", (void *)cached_base);
+    }
+    return cached_base;
+}
+
 static int custom_FBEndToEndIsRunningJestE2E(void) {
     if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         void *ret_addr = __builtin_return_address(0);
-        uintptr_t base = (uintptr_t)_dyld_get_image_header(0);
-        NSLog(@"[RyukGram] FBEndToEndIsRunningJestE2E called, base=%p, ret_addr=%p, offset=0x%lx", (void *)base, ret_addr, (unsigned long)((uintptr_t)ret_addr - base));
+        uintptr_t base = get_instagram_base_address();
+        os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E called, base=%p, ret_addr=%p, offset=0x%lx", (void *)base, ret_addr, (unsigned long)((uintptr_t)ret_addr - base));
         if (base != 0) {
             uintptr_t start = base + 0x6FEB960;
             uintptr_t end = start + 0x9c;
             uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
-                NSLog(@"[RyukGram] FBEndToEndIsRunningJestE2E MATCH -> returning 1");
+                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E MATCH -> returning 1");
                 return 1;
             }
         }
@@ -118,14 +144,14 @@ static int custom_FBEndToEndIsRunningJestE2E(void) {
 static int custom_FBEndToEndIsRunningSapienz(void *a1) {
     if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         void *ret_addr = __builtin_return_address(0);
-        uintptr_t base = (uintptr_t)_dyld_get_image_header(0);
-        NSLog(@"[RyukGram] FBEndToEndIsRunningSapienz called, base=%p, ret_addr=%p, offset=0x%lx", (void *)base, ret_addr, (unsigned long)((uintptr_t)ret_addr - base));
+        uintptr_t base = get_instagram_base_address();
+        os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningSapienz called, base=%p, ret_addr=%p, offset=0x%lx", (void *)base, ret_addr, (unsigned long)((uintptr_t)ret_addr - base));
         if (base != 0) {
             uintptr_t start = base + 0x6FEB960;
             uintptr_t end = start + 0x9c;
             uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
-                NSLog(@"[RyukGram] FBEndToEndIsRunningSapienz MATCH -> returning 0");
+                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningSapienz MATCH -> returning 0");
                 return 0;
             }
         }
