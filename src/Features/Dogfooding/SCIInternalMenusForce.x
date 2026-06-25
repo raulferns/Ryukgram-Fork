@@ -33,6 +33,14 @@
 #import "../../../modules/fishhook/fishhook.h"
 #import <dlfcn.h>
 #import <unistd.h>
+#import <pthread.h>
+
+// Thread-local flag: set by Sapienz hook when called from sub_106FEB960,
+// checked by XPlugins hook, cleared by JestE2E hook.
+// Execution order inside sub_106FEB960: Sapienz → XPlugins → JestE2E.
+// This prevents the XPlugins mock from firing outside that call chain
+// (e.g., in sub_1016E9D74 where the mock descriptor crashes the app).
+static _Thread_local BOOL g_inside_employee_check = NO;
 
 // ---------------------------------------------------------------------------
 #pragma mark - XPlugins / fishhook Gating Hook
@@ -63,7 +71,12 @@ static const void *mock_true_func(void) {
 
 static void *custom_XPluginsGetDataFunc(int paramID) {
     // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
-    if (paramID == 1681030145 && [SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
+    // CRITICAL: Only return the mock when called from within sub_106FEB960's call chain.
+    // Outside that chain (e.g., sub_1016E9D74 menu initializer), the native code tries
+    // to use the returned descriptor as a real MobileConfig object and crashes.
+    if (paramID == 1681030145
+        && g_inside_employee_check
+        && [SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         return (void *)mock_true_func;
     }
     if (orig_XPluginsGetDataFuncOrAbort) {
@@ -142,7 +155,11 @@ static int custom_FBEndToEndIsRunningJestE2E(void) {
             uintptr_t end = start + 0x9c;
             uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
-                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E MATCH -> returning 1");
+                // JestE2E is called LAST in sub_106FEB960. Clear the flag
+                // so subsequent XPlugins calls (outside this call chain)
+                // fall through to the original implementation.
+                g_inside_employee_check = NO;
+                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E MATCH -> returning 1 (flag cleared)");
                 return 1;
             }
         }
@@ -163,7 +180,11 @@ static int custom_FBEndToEndIsRunningSapienz(void *a1) {
             uintptr_t end = start + 0x9c;
             uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
-                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningSapienz MATCH -> returning 0");
+                // Sapienz is called FIRST in sub_106FEB960. Set the flag so
+                // the subsequent XPluginsGetDataFuncOrAbort call (for paramID
+                // 1681030145) knows it's inside the employee check.
+                g_inside_employee_check = YES;
+                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningSapienz MATCH -> returning 0 (flag set)");
                 return 0;
             }
         }
