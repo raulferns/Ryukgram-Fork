@@ -48,8 +48,9 @@ static void dummy_socket_func(void *a __unused, void *b __unused, void *c __unus
     // No-op to prevent crashes if a socket resolves to NULL
 }
 
-static uint64_t mock_true_func(void) {
-    return 1;
+static const uint32_t mock_val_true = 1;
+static const void *mock_true_func(void) {
+    return &mock_val_true;
 }
 
 static void *custom_XPluginsGetDataFunc(int paramID) {
