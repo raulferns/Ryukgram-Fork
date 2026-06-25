@@ -103,30 +103,10 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
     }
 }
 
-- (void)tableView:(id)tableView didSelectRowAtIndexPath:(id)indexPath {
-    UITableViewCell *cell = nil;
-    @try {
-        if ([tableView respondsToSelector:@selector(cellForRowAtIndexPath:)]) {
-            cell = [tableView cellForRowAtIndexPath:indexPath];
-        }
-    } @catch (__unused id e) {}
-    
-    if (cell && SCICellContainsText(cell, @"Internal Settings")) {
-        ILOG("intercepted Internal Settings tap — opening directly via URL router");
-        (void)SCIInternalMenusForceApplyNow();
-        [SCIInternalMenusLauncher openInternalURLString:@"instagram://internal_settings"];
-        return; // Skip native employee checks completely!
-    }
-    
-    if (cell && SCICellContainsText(cell, @"Dogfooding Assistant")) {
-        ILOG("intercepted Dogfooding Assistant tap — opening directly via URL router");
-        (void)SCIInternalMenusForceApplyNow();
-        [SCIInternalMenusLauncher openInternalURLString:@"instagram://dogfooding_assistant"];
-        return; // Skip native employee checks completely!
-    }
-    
-    %orig;
-}
+
+// We let didSelectRowAtIndexPath: execute natively without interception so the native
+// controller presentation flow (which is bypassed by our fishhook) runs.
+
 
 %end
 
