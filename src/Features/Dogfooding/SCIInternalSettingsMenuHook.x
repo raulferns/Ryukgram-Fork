@@ -100,6 +100,8 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
     if (SCIInternalMenuEnabled()) {
         BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
         ILOG("viewDidLoad: patched ivars directly (status=%s)", patched ? "OK" : "MISS");
+        NSString *res = SCIInternalMenusForceApplyNow();
+        ILOG("viewDidLoad: applied employee hooks: %s", res.UTF8String);
     }
 }
 
