@@ -48,9 +48,18 @@ static void dummy_socket_func(void *a __unused, void *b __unused, void *c __unus
     // No-op to prevent crashes if a socket resolves to NULL
 }
 
-static const uint32_t mock_val_true = 1;
+struct MobileConfigParamDescriptor {
+    uint32_t value;
+    uint32_t socketID;
+};
+
+static struct MobileConfigParamDescriptor mock_descriptor = {
+    .value = 1,
+    .socketID = 999999
+};
+
 static const void *mock_true_func(void) {
-    return &mock_val_true;
+    return &mock_descriptor;
 }
 
 static void *custom_XPluginsGetDataFunc(int paramID) {
@@ -65,6 +74,9 @@ static void *custom_XPluginsGetDataFunc(int paramID) {
 }
 
 static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
+    if (socketID == 999999) {
+        return (void *)dummy_socket_func;
+    }
     void *res = NULL;
     if (orig_XPluginsGetFunctionPtrFromID) {
         res = orig_XPluginsGetFunctionPtrFromID(socketID, arg2);
