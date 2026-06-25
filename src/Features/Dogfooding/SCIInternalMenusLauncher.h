@@ -6,5 +6,6 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSString *)openDogfoodingNotesSettings;     // +notesDogfoodingSettingsOpenOnViewController:userSession: (reliable)
 + (NSString *)openDogfoodingSettingsVC;        // +openWithConfig:onViewController:userSession: / initWithConfig:userSession: when config is captured
 + (NSString *)openInternalURLString:(NSString *)urlString; // +[IGURLHandler openInternalURL:...]
++ (NSString *)openInternalURLString:(NSString *)urlString controller:(nullable UIViewController *)controller;
 @end
 NS_ASSUME_NONNULL_END

@@ -62,13 +62,20 @@
 // +[IGURLHandler openInternalURL:presentationConfig:controller:animated:userSession:annotation:]
 // Best-effort — tries common internal settings URL schemes.
 + (NSString *)openInternalURLString:(NSString *)urlString {
+    return [self openInternalURLString:urlString controller:nil];
+}
+
++ (NSString *)openInternalURLString:(NSString *)urlString controller:(nullable UIViewController *)controller {
     id session = [self session];
     if (!session) return @"no live user session";
     Class C = NSClassFromString(@"IGURLHandler");
     SEL s = NSSelectorFromString(
         @"openInternalURL:presentationConfig:controller:animated:userSession:annotation:");
     if (!C || ![C respondsToSelector:s]) return @"IGURLHandler.openInternalURL not found";
-    UIViewController *top = [self topVC];
+    
+    UIViewController *top = controller ?: [self topVC];
+    if (!top) return @"no presenter view controller";
+    
     NSURL *url = [NSURL URLWithString:urlString];
     @try {
         BOOL ok = ((BOOL(*)(id,SEL,id,id,id,BOOL,id,id))objc_msgSend)(

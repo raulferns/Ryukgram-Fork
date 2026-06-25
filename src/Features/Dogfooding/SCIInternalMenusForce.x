@@ -53,32 +53,57 @@ static void *dummy_socket_func(void *a __unused, void *b __unused, void *c __unu
     return NULL;
 }
 
-// A large mock descriptor buffer (128 bytes) to prevent out-of-bounds reads
-// when the binary accesses properties beyond offset 8 of the descriptor struct.
-static const uint32_t mock_descriptor[32] = {
-    [0] = 1,      // value / paramID / default value (offset 0)
-    [1] = 999999, // socketID (offset 4)
-    [2] = 0,      // offset 8
-    [3] = 0,      // offset 12
-};
+static uint32_t cached_desc_1681030145[32] = {1, 0};
+static uint32_t cached_desc_760840931[32] = {1, 0};
 
-static const void *mock_true_func(void) {
-    return &mock_descriptor;
+static const void *mock_func_1681030145(void) {
+    return &cached_desc_1681030145;
+}
+
+static const void *mock_func_760840931(void) {
+    return &cached_desc_760840931;
 }
 
 static void *custom_XPluginsGetDataFunc(int paramID) {
-    // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
-    if (paramID == 1681030145 && [SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
-        return (void *)mock_true_func;
-    }
     if (orig_XPluginsGetDataFuncOrAbort) {
-        return orig_XPluginsGetDataFuncOrAbort(paramID);
+        void *res = orig_XPluginsGetDataFuncOrAbort(paramID);
+        if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
+            if (paramID == 1681030145) {
+                if (res) {
+                    typedef const uint32_t *(*DescriptorFunc)(void);
+                    const uint32_t *real_desc = ((DescriptorFunc)res)();
+                    if (real_desc) {
+                        cached_desc_1681030145[1] = real_desc[1];
+                        os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFunc: paramID %d, real socketID is %u", paramID, real_desc[1]);
+                    }
+                }
+                return (void *)mock_func_1681030145;
+            }
+            if (paramID == 760840931) {
+                if (res) {
+                    typedef const uint32_t *(*DescriptorFunc)(void);
+                    const uint32_t *real_desc = ((DescriptorFunc)res)();
+                    if (real_desc) {
+                        cached_desc_760840931[1] = real_desc[1];
+                        os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFunc: paramID %d, real socketID is %u", paramID, real_desc[1]);
+                    }
+                }
+                return (void *)mock_func_760840931;
+            }
+        }
+        return res;
     }
     return NULL;
 }
 
 static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
     if (socketID == 999999) {
+        return (void *)dummy_socket_func;
+    }
+    // Safeguard: socketID is a 32-bit int. Garbage heap pointers casted to 32-bit
+    // int are typically large numbers, whereas real socket IDs are small indices.
+    if (socketID <= 0 || socketID > 10000000) {
+        os_log(OS_LOG_DEFAULT, "[SCIGate] XPluginsGetFunctionPtrFromID: garbage socketID %d detected, returning dummy_socket_func", socketID);
         return (void *)dummy_socket_func;
     }
     void *res = NULL;

@@ -16,6 +16,7 @@
 #import "../../Utils.h"
 #import "SCIInternalMenusForce.h"
 #import "SCIInternalMenusLauncher.h"
+#import "SCIDogfoodObjectRuntime.h"
 
 #define ILOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] InternalMenu " fmt, ##__VA_ARGS__)
 
@@ -79,6 +80,9 @@ showLoggedOutInternalSettings:(BOOL)arg10
 showShakeToReportPreferenceToggle:(BOOL)arg11 {
     if (SCIInternalMenuEnabled()) {
         ILOG("initWithDeviceSession: forcing internalSettingsAvailabilityStatus=2 to bypass MobileConfig socket call");
+        if (arg2) {
+            [SCIDogfoodObjectRuntime noteLiveUserSession:arg2 source:@"IGBugReportMenuViewController.initWithDeviceSession"];
+        }
         return %orig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, 2, YES, YES, YES);
     }
     return %orig;
@@ -124,6 +128,19 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
             SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
         }
         ILOG("viewDidLoad: patched ivars directly before orig (status=%s)", patched ? "OK" : "MISS");
+
+        // Safety: patch userSession if nil
+        Ivar sessionIvar = class_getInstanceVariable(object_getClass(self), "userSession");
+        if (sessionIvar) {
+            id currentSession = object_getIvar(self, sessionIvar);
+            if (!currentSession) {
+                id activeSession = [SCIDogfoodObjectRuntime activeUserSession];
+                if (activeSession) {
+                    object_setIvar(self, sessionIvar, activeSession);
+                    ILOG("viewDidLoad: userSession was nil, patched with activeUserSession");
+                }
+            }
+        }
     }
     %orig;
     if (SCIInternalMenuEnabled()) {
@@ -134,6 +151,32 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     ILOG("tableView:didSelectRowAtIndexPath: section=%ld, row=%ld", (long)indexPath.section, (long)indexPath.row);
+    if (SCIInternalMenuEnabled()) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+        if (SCICellContainsText(cell, @"Internal Settings")) {
+            id session = [SCIDogfoodObjectRuntime activeUserSession];
+            if (session) {
+                ILOG("Intercepted Internal Settings tap, launching via URL handler");
+                NSString *res = [SCIInternalMenusLauncher openInternalURLString:@"instagram://internal_settings" controller:self];
+                ILOG("Launcher result: %s", res.UTF8String);
+                [tableView deselectRowAtIndexPath:indexPath animated:YES];
+                return;
+            } else {
+                ILOG("Internal Settings tap while logged out, letting native code handle");
+            }
+        }
+        // Comment out custom Dogfooding Assistant interceptor to let the native flow run
+        /*
+        if (SCICellContainsText(cell, @"Dogfooding Assistant")) {
+            ILOG("Intercepted Dogfooding Assistant tap, launching via VC");
+            NSString *res = [SCIInternalMenusLauncher openDogfoodingSettingsVC];
+            ILOG("Launcher result: %s", res.UTF8String);
+            [tableView deselectRowAtIndexPath:indexPath animated:YES];
+            return;
+        }
+        */
+    }
+
     if (SCIInternalMenuEnabled()) {
         SCISetDuringBugReportMenuTapHandler(YES);
     }
