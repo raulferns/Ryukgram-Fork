@@ -123,17 +123,13 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
         Class igUserCls = NSClassFromString(@"IGUser");
         if (igUserCls) {
             SEL sel1 = NSSelectorFromString(@"asIGInternalSettingsAvailabilityFragmentImmutableModel");
-            if (class_getInstanceMethod(igUserCls, sel1)) {
-                IMP orig = NULL;
-                MSHookMessageEx(igUserCls, sel1, (IMP)new_asIGInternalSettingsAvailabilityFragmentImmutableModel, &orig);
-                installed++;
-            }
+            class_replaceMethod(igUserCls, sel1, (IMP)new_asIGInternalSettingsAvailabilityFragmentImmutableModel, "@@:");
+            installed++;
+            
             SEL sel2 = NSSelectorFromString(@"asIGUserIsEmployeeOrTestUserFragment");
-            if (class_getInstanceMethod(igUserCls, sel2)) {
-                IMP orig = NULL;
-                MSHookMessageEx(igUserCls, sel2, (IMP)new_asIGUserIsEmployeeOrTestUserFragment, &orig);
-                installed++;
-            }
+            class_replaceMethod(igUserCls, sel2, (IMP)new_asIGUserIsEmployeeOrTestUserFragment, "@@:");
+            installed++;
+            
             didHookGraphQLEmployee = YES;
         }
     }
