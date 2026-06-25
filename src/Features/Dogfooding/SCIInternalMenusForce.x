@@ -29,6 +29,7 @@
 #import "../../Utils.h"
 #import "../Gating/SCIRuntimeBoolForce.h"
 #import "SCIInternalMenusForce.h"
+#import "SCIInternalGatePrefs.h"
 #import "../../../modules/fishhook/fishhook.h"
 #import <dlfcn.h>
 #import <unistd.h>
@@ -51,11 +52,9 @@ static uint64_t mock_true_func(void) {
     return 1;
 }
 
-static BOOL cached_force_internal = NO;
-
 static void *custom_XPluginsGetDataFunc(int paramID) {
     // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
-    if (paramID == 1681030145 && cached_force_internal) {
+    if (paramID == 1681030145 && [SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         return (void *)mock_true_func;
     }
     if (orig_XPluginsGetDataFuncOrAbort) {
@@ -96,7 +95,7 @@ static FBEndToEndIsRunningJestE2EFn orig_FBEndToEndIsRunningJestE2E = NULL;
 static FBEndToEndIsRunningSapienzFn orig_FBEndToEndIsRunningSapienz = NULL;
 
 static int custom_FBEndToEndIsRunningJestE2E(void) {
-    if (cached_force_internal) {
+    if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         void *ret_addr = __builtin_return_address(0);
         uintptr_t base = (uintptr_t)_dyld_get_image_header(0);
         if (base != 0) {
@@ -116,7 +115,7 @@ static int custom_FBEndToEndIsRunningJestE2E(void) {
 }
 
 static int custom_FBEndToEndIsRunningSapienz(void *a1) {
-    if (cached_force_internal) {
+    if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         void *ret_addr = __builtin_return_address(0);
         uintptr_t base = (uintptr_t)_dyld_get_image_header(0);
         if (base != 0) {
@@ -177,9 +176,8 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
 }
 
 NSString *SCIInternalMenusForceApplyNow(void) {
-    cached_force_internal = [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"];
     NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
-    return [NSString stringWithFormat:@"Forced internal settings: %d, installed %lu ObjC hooks.", cached_force_internal, (unsigned long)installed];
+    return [NSString stringWithFormat:@"Forced internal settings: %d, installed %lu ObjC hooks.", [SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"], (unsigned long)installed];
 }
 
 // ---------------------------------------------------------------------------
@@ -208,9 +206,7 @@ NSString *SCIInternalMenusForceApplyNow(void) {
         int rc = rebind_symbols(rebs, 4);
         NSLog(@"[RyukGram] fishhook resolved bindings, rc = %d", rc);
         
-        cached_force_internal = [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"];
-        
-        if (cached_force_internal) {
+        if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
             NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
             NSLog(@"[RyukGram] Installed %lu ObjC runtime hooks at launch", (unsigned long)installed);
         }
