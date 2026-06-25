@@ -65,6 +65,24 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
 
 %hook IGBugReportMenuViewController
 
+- (id)initWithDeviceSession:(id)arg1
+                userSession:(id)arg2
+         reliabilityLogging:(id)arg3
+                   navChain:(id)arg4
+                   endpoint:(id)arg5
+                 entryPoint:(long)arg6
+                      style:(long)arg7
+internalSettingsAvailabilityStatus:(long)arg8
+       showInternalSettings:(BOOL)arg9
+showLoggedOutInternalSettings:(BOOL)arg10
+showShakeToReportPreferenceToggle:(BOOL)arg11 {
+    if (SCIInternalMenuEnabled()) {
+        ILOG("initWithDeviceSession: forcing internalSettingsAvailabilityStatus=2 to bypass MobileConfig socket call");
+        return %orig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, 2, YES, YES, YES);
+    }
+    return %orig;
+}
+
 - (BOOL)showInternalSettings {
     if (SCIInternalMenuEnabled()) return YES;
     return %orig;
@@ -99,6 +117,12 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
     %orig;
     if (SCIInternalMenuEnabled()) {
         BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
+        SCIPatchIvarToBool(self, "showInternalSettings", YES);
+        SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
+        SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
+        if (SCIInternalMenuLoggedOutEnabled()) {
+            SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
+        }
         ILOG("viewDidLoad: patched ivars directly (status=%s)", patched ? "OK" : "MISS");
         NSString *res = SCIInternalMenusForceApplyNow();
         ILOG("viewDidLoad: applied employee hooks: %s", res.UTF8String);
