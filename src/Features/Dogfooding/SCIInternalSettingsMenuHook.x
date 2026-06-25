@@ -98,12 +98,6 @@ static BOOL SCICellContainsText(UIView *view, NSString *text) {
     %orig;
     if (SCIInternalMenuEnabled()) {
         BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
-        SCIPatchIvarToBool(self, "showInternalSettings", YES);
-        SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
-        SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
-        if (SCIInternalMenuLoggedOutEnabled()) {
-            SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
-        }
         ILOG("viewDidLoad: patched ivars directly (status=%s)", patched ? "OK" : "MISS");
     }
 }

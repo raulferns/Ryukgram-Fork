@@ -183,7 +183,8 @@ static NSUInteger SCIInternalMenusInstallLocalRuntimeBoolHooks(void) {
 }
 
 NSString *SCIInternalMenusForceApplyNow(void) {
-    return @"Hooks are installed at launch. No action needed on tap. (Prevents main-thread freeze)";
+    NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
+    return [NSString stringWithFormat:@"Installed %lu ObjC employee/dogfooding hooks for this session.", (unsigned long)installed];
 }
 
 // ---------------------------------------------------------------------------
