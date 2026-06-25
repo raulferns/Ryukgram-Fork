@@ -48,14 +48,13 @@ static void dummy_socket_func(void *a __unused, void *b __unused, void *c __unus
     // No-op to prevent crashes if a socket resolves to NULL
 }
 
-struct MobileConfigParamDescriptor {
-    uint32_t value;
-    uint32_t socketID;
-};
-
-static struct MobileConfigParamDescriptor mock_descriptor = {
-    .value = 1,
-    .socketID = 999999
+// A large mock descriptor buffer (128 bytes) to prevent out-of-bounds reads
+// when the binary accesses properties beyond offset 8 of the descriptor struct.
+static const uint32_t mock_descriptor[32] = {
+    [0] = 1,      // value / paramID / default value (offset 0)
+    [1] = 999999, // socketID (offset 4)
+    [2] = 0,      // offset 8
+    [3] = 0,      // offset 12
 };
 
 static const void *mock_true_func(void) {
