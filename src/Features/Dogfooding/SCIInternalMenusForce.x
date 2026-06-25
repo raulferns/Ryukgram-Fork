@@ -98,12 +98,13 @@ static int custom_FBEndToEndIsRunningJestE2E(void) {
     if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         void *ret_addr = __builtin_return_address(0);
         uintptr_t base = (uintptr_t)_dyld_get_image_header(0);
+        NSLog(@"[RyukGram] FBEndToEndIsRunningJestE2E called, base=%p, ret_addr=%p, offset=0x%lx", (void *)base, ret_addr, (unsigned long)((uintptr_t)ret_addr - base));
         if (base != 0) {
             uintptr_t start = base + 0x6FEB960;
             uintptr_t end = start + 0x9c;
             uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
-                NSLog(@"[RyukGram] FBEndToEndIsRunningJestE2E called from sub_106FEB960 -> returning 1");
+                NSLog(@"[RyukGram] FBEndToEndIsRunningJestE2E MATCH -> returning 1");
                 return 1;
             }
         }
@@ -118,12 +119,13 @@ static int custom_FBEndToEndIsRunningSapienz(void *a1) {
     if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         void *ret_addr = __builtin_return_address(0);
         uintptr_t base = (uintptr_t)_dyld_get_image_header(0);
+        NSLog(@"[RyukGram] FBEndToEndIsRunningSapienz called, base=%p, ret_addr=%p, offset=0x%lx", (void *)base, ret_addr, (unsigned long)((uintptr_t)ret_addr - base));
         if (base != 0) {
             uintptr_t start = base + 0x6FEB960;
             uintptr_t end = start + 0x9c;
             uintptr_t ip = (uintptr_t)ret_addr;
             if (ip >= start && ip <= end) {
-                NSLog(@"[RyukGram] FBEndToEndIsRunningSapienz called from sub_106FEB960 -> returning 0");
+                NSLog(@"[RyukGram] FBEndToEndIsRunningSapienz MATCH -> returning 0");
                 return 0;
             }
         }
