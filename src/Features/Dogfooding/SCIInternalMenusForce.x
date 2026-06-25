@@ -76,8 +76,8 @@ static void *custom_XPluginsGetDataFunc(int paramID) {
         if (base != 0) {
             uintptr_t offset2 = (uintptr_t)ret2 - base;
             os_log(OS_LOG_DEFAULT, "[SCIGate] XPluginsGetDataFunc 1681030145 called, depth 2 offset = 0x%lx", (unsigned long)offset2);
-            // If the grandparent caller is within the initializer (sub_1016E9D74), return NULL to avoid crash.
-            if (offset2 >= 0x16E9D74 && offset2 <= 0x16EA100) {
+            // If the grandparent caller offset matches the initializer call sequence (around 0x169cccc), return NULL to avoid crash.
+            if (offset2 >= 0x169CCC0 && offset2 <= 0x169CCF0) {
                 os_log(OS_LOG_DEFAULT, "[SCIGate] XPluginsGetDataFunc matched initializer -> returning NULL to prevent crash");
                 return NULL;
             }
