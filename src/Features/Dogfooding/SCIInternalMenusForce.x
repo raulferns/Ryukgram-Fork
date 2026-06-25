@@ -48,8 +48,9 @@ static XPluginsGetFunctionPtrFromIDFn orig_XPluginsGetFunctionPtrFromID = NULL;
 static uintptr_t get_instagram_base_address(void);
 
 
-static void dummy_socket_func(void *a __unused, void *b __unused, void *c __unused, void *d __unused) {
-    // No-op to prevent crashes if a socket resolves to NULL
+static void *dummy_socket_func(void *a __unused, void *b __unused, void *c __unused, void *d __unused) {
+    // Return NULL (nil) to prevent EXC_BAD_ACCESS if the caller expects an object
+    return NULL;
 }
 
 // A large mock descriptor buffer (128 bytes) to prevent out-of-bounds reads
@@ -68,21 +69,6 @@ static const void *mock_true_func(void) {
 static void *custom_XPluginsGetDataFunc(int paramID) {
     // 1681030145 is the MobileConfig gate (paramID for internal settings availability check)
     if (paramID == 1681030145 && [SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wframe-address"
-        void *ret2 = __builtin_return_address(2);
-#pragma clang diagnostic pop
-        uintptr_t base = get_instagram_base_address();
-        if (base != 0) {
-            uintptr_t offset2 = (uintptr_t)ret2 - base;
-            os_log(OS_LOG_DEFAULT, "[SCIGate] XPluginsGetDataFunc 1681030145 called, depth 2 offset = 0x%lx", (unsigned long)offset2);
-            // If the grandparent caller offset matches the initializer call sequence (around 0x169cccc), return NULL to avoid crash.
-            if (offset2 >= 0x169CCC0 && offset2 <= 0x169CCF0) {
-                os_log(OS_LOG_DEFAULT, "[SCIGate] XPluginsGetDataFunc matched initializer -> returning NULL to prevent crash");
-                return NULL;
-            }
-        }
-        os_log(OS_LOG_DEFAULT, "[SCIGate] XPluginsGetDataFunc returning mock_true_func");
         return (void *)mock_true_func;
     }
     if (orig_XPluginsGetDataFuncOrAbort) {
