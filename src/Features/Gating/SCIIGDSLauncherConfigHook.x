@@ -1,6 +1,9 @@
 // SCIIGDSLauncherConfigHook.x
 //
 // IGDSLauncherConfig BOOL getter hooks, priv-main style.
+// Stage B: SÓ os 31 getters VIVOS (método + __objc_selref no binário, i.e. há
+// call-site objc_msgSend). 14 getters MORTOS (sem selref => Swift direct-dispatch,
+// swizzle não pega) foram removidos para não dar falsa sensação de "aplicado".
 // ObjC BOOL getters use Logos %hook + %group/%init and read prefs live through
 // SCIUtils, so toggles apply live after the hook group was installed at launch.
 // No MSHookMessageEx, no class_replaceMethod, no %hookf, no arbitrary runtime
@@ -62,27 +65,17 @@ static BOOL SCIIGDSAnyPrefEnabled(void) {
 
 - (BOOL)isLiquidGlassInAppNotificationEnabled { return SCIIGDSLG(@"sci_igds_lg_inappnotif") ? YES : %orig; }
 - (BOOL)isLiquidGlassToastEnabled { return SCIIGDSLG(@"sci_igds_lg_toast") ? YES : %orig; }
-- (BOOL)isLiquidGlassToastPeekEnabled { return SCIIGDSLG(@"sci_igds_lg_toastpeek") ? YES : %orig; }
-- (BOOL)isLiquidGlassIconBarButtonEnabled { return SCIIGDSLG(@"sci_igds_lg_iconbarbtn") ? YES : %orig; }
-- (BOOL)isLiquidGlassNavigationContentStylePinningEnabled { return SCIIGDSLG(@"sci_igds_lg_navstylepin") ? YES : %orig; }
 - (BOOL)isLiquidGlassEaseInOutBlurEnabled { return SCIIGDSLG(@"sci_igds_lg_easeinout") ? YES : %orig; }
-- (BOOL)isLiquidGlassCGContextBlurEnabled { return SCIIGDSLG(@"sci_igds_lg_cgblur") ? YES : %orig; }
-- (BOOL)canUseInternalLiquidGlassDebugger { return SCIIGDSLG(@"sci_igds_lg_debugger") ? YES : %orig; }
 - (BOOL)isContextMenuMigrationEnabled { return SCIIGDSLG(@"sci_igds_nav_ctxmenu") ? YES : %orig; }
 
 - (BOOL)isPrismControlsEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismDefaultTooltipEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismToastsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismAlertDialogEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismAvatarRingEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismContextMenuEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismContextMenuRefactorEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismIndigoButtonEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismIndigoButtonM1DirectEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismIndigoActionCellsEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isIGBPrismEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismOverflowMenuEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismOverflowMenuStampWidthIncreased { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismBottomSheetEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismCreationIconsEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismMediaButtonsEnabled { return SCIIGDSPrism() ? YES : %orig; }
@@ -90,18 +83,14 @@ static BOOL SCIIGDSAnyPrefEnabled(void) {
 - (BOOL)isPrismAllUserAssetsEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismFollowRelatedUserAssetsEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)_isPrismSecondaryNonUserIconsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismDividersUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismDividersCommentsUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismDividersEditReelEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismDividersNotificationsUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismDividersProfileUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
 - (BOOL)isPrismDividersShareSheetUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
 
-- (BOOL)isNavPushRoundedCornersEnabled { return SCIIGDSNav(@"sci_igds_nav_rounded") ? YES : %orig; }
-- (BOOL)isTransitionZoomCustomizationEnabled { return SCIIGDSNav(@"sci_igds_nav_tzoom") ? YES : %orig; }
 - (BOOL)isNativeBottomsheetForiPhoneEnabled { return SCIIGDSNav(@"sci_igds_nav_bottomsheet") ? YES : %orig; }
 - (BOOL)isNativeBottomsheetForiPhoneOnAllSurfacesEnabled { return SCIIGDSNav(@"sci_igds_nav_bottomsheet") ? YES : %orig; }
-- (BOOL)isAsyncFontRegistrationEnabled { return SCIIGDSNav(@"sci_igds_async_font") ? YES : %orig; }
 
 - (BOOL)isIGWordmark1aEnabled { return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1aEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1a"]) ? YES : %orig; }
 - (BOOL)isIGWordmark1aAltEnabled { return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1aAltEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1a_alt"]) ? YES : %orig; }
@@ -112,14 +101,16 @@ static BOOL SCIIGDSAnyPrefEnabled(void) {
 %end
 
 void SCIIGDSEnsureHooksInstalled(void) {
-	// Intentionally no-op: the hook group is installed only from %ctor.
-	// Existing installed getters read SCIUtils prefs live; first enable from an
-	// all-off launch takes effect after relaunch.
+	// Intentionally no-op: o grupo agora instala incondicionalmente no %ctor,
+	// então não há "primeiro enable só no relaunch".
 }
 
 %ctor {
 	@autoreleasepool {
-		if (!SCIIGDSAnyPrefEnabled()) return;
+		// Decisão 2 (Stage B): instala SEMPRE. Os 31 getters vivos leem prefs ao
+		// vivo e chamam %orig quando off, então com tudo-OFF o comportamento é
+		// idêntico ao original; instalar incondicional faz o toggle valer sem
+		// precisar reabrir o app (some o "liga e nada acontece").
 		// Mesmo padrão do resto da tweak (ver %init no Tweak.x): classes Swift são
 		// resolvidas por NSClassFromString(@"_TtC...") ?: nome legado, e passadas
 		// ao %init. IGDSLauncherConfig é o nome @objc de _TtC11BSLDSConfig11BSLDSConfig;

@@ -159,8 +159,9 @@ typedef NS_ENUM(NSInteger, SCIDogfoodBrowserMode) {
 
     UIBarButtonItem *refresh = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(refreshAll)];
     UIBarButtonItem *export = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAction target:self action:@selector(exportSnapshot)];
-    self.navigationItem.rightBarButtonItems = @[refresh, export];
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemTrash target:self action:@selector(confirmClearRuntime)];
+    UIBarButtonItem *clear = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemTrash target:self action:@selector(confirmClearRuntime)];
+    // NAO sobrescrever leftBarButtonItem: preserva o botao Voltar nativo do push.
+    self.navigationItem.rightBarButtonItems = @[refresh, export, clear];
 
     self.glassSearchBar = [[SCIUIKit26SearchBarContainerView alloc] initWithRadius:22.0];
     self.glassSearchBar.translatesAutoresizingMaskIntoConstraints = NO;

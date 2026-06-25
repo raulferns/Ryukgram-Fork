@@ -11,7 +11,6 @@
 
 #import "SCISettingsSections.h"
 #import "../SCIDogfoodBrowserViewController.h"
-#import "../SCIInternalActionsViewController.h"
 #import "../SCISymbolBrowserViewController.h"
 #import "../SCISymbolsBrowserViewController.h"
 #import "../SCIIGDSLauncherConfigViewController.h"
@@ -197,7 +196,6 @@
 							       icon:[SCISymbol symbolWithName:@"wand.and.stars"]
 							viewController:[SCIIGDSLauncherConfigViewController new]],
 					[SCISetting navigationCellWithTitle:SCILocalized(@"Dogfood & Internal Browser") subtitle:SCILocalized(@"Runtime stubs, live IGUserSession objects, dogfood actions and native internal setters") icon:[SCISymbol symbolWithName:@"pawprint"] viewController:[SCIDogfoodBrowserViewController new]],
-					[SCISetting navigationCellWithTitle:SCILocalized(@"Internal Actions") subtitle:SCILocalized(@"Live IGUserSession actions, IGFacebookUserInfo.isEmployee, Notes dogfood and native Autofill setters") icon:[SCISymbol symbolWithName:@"switch.2"] viewController:[SCIInternalActionsViewController new]],
 											]
 						}
 				]];

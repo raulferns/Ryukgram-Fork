@@ -29,14 +29,14 @@
 - (void)buildSections {
 	IGDSSection *master = [IGDSSection new];
 	master.header = @"Master";
-	master.footer = @"Ativa todos os grupos simultaneamente. Se a tela foi aberta após um launch sem nenhum IGDS ativo, o primeiro apply acontece no próximo relaunch.";
+	master.footer = @"Ativa todos os grupos de uma vez. Os hooks agora instalam sempre — o toggle vale ao reabrir a tela afetada, sem precisar reabrir o app.";
 	master.rows = @[
 		@{@"title":@"★ Ativar tudo (IGDSLauncherConfig)", @"key":@"sci_igds_launcher_all", @"restart":@YES},
 	];
 
 	IGDSSection *lg = [IGDSSection new];
 	lg.header = @"Liquid Glass";
-	lg.footer = @"isLiquidGlass* + canUseInternalLiquidGlassDebugger + isContextMenuMigrationEnabled";
+	lg.footer = @"Liga os getters LiquidGlass do IGDS que o app realmente consulta via objc_msgSend.";
 	lg.rows = @[
 		@{@"title":@"Liquid Glass (IGDSLauncherConfig)", @"key":@"sci_igds_liquidglass", @"restart":@YES},
 	];
@@ -50,27 +50,19 @@
 
 	IGDSSection *lgDetail = [IGDSSection new];
 	lgDetail.header = @"LiquidGlass — detalhado";
-	lgDetail.footer = @"Cada método individualmente.";
+	lgDetail.footer = @"Só os getters LiquidGlass vivos. Os mortos (ToastPeek, IconBarButton, NavContentStylePinning, CGContextBlur, GlyphOpt, InternalDebugger) eram Swift direct-dispatch (sem call-site) e foram removidos.";
 	lgDetail.rows = @[
-		@{@"title":@"InAppNotification",         @"key":@"sci_igds_lg_inappnotif",   @"restart":@YES},
-		@{@"title":@"Toast",                     @"key":@"sci_igds_lg_toast",         @"restart":@YES},
-		@{@"title":@"ToastPeek",                 @"key":@"sci_igds_lg_toastpeek",     @"restart":@YES},
-		@{@"title":@"IconBarButton",             @"key":@"sci_igds_lg_iconbarbtn",    @"restart":@YES},
-		@{@"title":@"NavContentStylePinning",    @"key":@"sci_igds_lg_navstylepin",   @"restart":@YES},
-		@{@"title":@"EaseInOutBlur",             @"key":@"sci_igds_lg_easeinout",     @"restart":@YES},
-		@{@"title":@"CGContextBlur",             @"key":@"sci_igds_lg_cgblur",        @"restart":@YES},
-		@{@"title":@"OptimizeGlyphRendering",    @"key":@"sci_igds_lg_glyphopt",      @"restart":@YES},
-		@{@"title":@"InternalDebugger",          @"key":@"sci_igds_lg_debugger",      @"restart":@YES},
+		@{@"title":@"In-App Notification (LiquidGlass)", @"key":@"sci_igds_lg_inappnotif", @"restart":@NO},
+		@{@"title":@"Toast (LiquidGlass)",               @"key":@"sci_igds_lg_toast",      @"restart":@NO},
+		@{@"title":@"Ease-in-out Blur (LiquidGlass)",    @"key":@"sci_igds_lg_easeinout",  @"restart":@NO},
 	];
 
 	IGDSSection *nav = [IGDSSection new];
 	nav.header = @"Navegação & Transições";
-	nav.footer = nil;
+	nav.footer = @"NavPushRoundedCorners e TransitionZoom eram getters mortos (sem call-site) e foram removidos.";
 	nav.rows = @[
-		@{@"title":@"NavPushRoundedCorners",     @"key":@"sci_igds_nav_rounded",      @"restart":@YES},
-		@{@"title":@"TransitionZoom",            @"key":@"sci_igds_nav_tzoom",        @"restart":@YES},
-		@{@"title":@"ContextMenuMigration",      @"key":@"sci_igds_nav_ctxmenu",      @"restart":@YES},
-		@{@"title":@"NativeBottomsheet",         @"key":@"sci_igds_nav_bottomsheet",  @"restart":@YES},
+		@{@"title":@"Context Menu Migration",            @"key":@"sci_igds_nav_ctxmenu",   @"restart":@NO},
+		@{@"title":@"Native Bottom Sheet (iPhone)",      @"key":@"sci_igds_nav_bottomsheet", @"restart":@NO},
 	];
 
 	_sections = @[master, lg, prism, lgDetail, nav];
