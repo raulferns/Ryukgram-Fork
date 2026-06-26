@@ -4,6 +4,3 @@
 // session. This must be called from an explicit settings toggle change after the
 // app UI is available, never from %ctor/startup.
 NSString *SCIInternalMenusForceApplyNow(void);
-
-void SCISetDuringBugReportMenuTapHandler(BOOL during);
-BOOL SCIIsDuringBugReportMenuTapHandler(void);

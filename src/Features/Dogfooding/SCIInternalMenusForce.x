@@ -49,87 +49,14 @@ static uintptr_t get_instagram_base_address(void);
 
 
 #import <UIKit/UIKit.h>
-#import "SCIInternalMenusLauncher.h"
-#import "SCIDogfoodObjectRuntime.h"
-
-@interface SCIDummyViewController : UIViewController
-@property (nonatomic, strong) NSString *targetURL;
-@property (nonatomic, assign) BOOL isDogfooding;
-@end
-
-@implementation SCIDummyViewController
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    
-    UIViewController *presenter = self.presentingViewController;
-    UINavigationController *nav = self.navigationController;
-    
-    if (self.isDogfooding) {
-        if (nav) {
-            NSMutableArray *vcs = [nav.viewControllers mutableCopy];
-            [vcs removeObject:self];
-            [nav setViewControllers:vcs animated:NO];
-            [SCIDogfoodObjectRuntime tryOpenNativeDogfoodSettings];
-        } else if (presenter) {
-            [self dismissViewControllerAnimated:NO completion:^{
-                [SCIDogfoodObjectRuntime tryOpenNativeDogfoodSettings];
-            }];
-        }
-    } else if (self.targetURL) {
-        if (nav) {
-            NSMutableArray *vcs = [nav.viewControllers mutableCopy];
-            [vcs removeObject:self];
-            [nav setViewControllers:vcs animated:NO];
-            [SCIInternalMenusLauncher openInternalURLString:self.targetURL controller:nav];
-        } else if (presenter) {
-            [self dismissViewControllerAnimated:NO completion:^{
-                [SCIInternalMenusLauncher openInternalURLString:self.targetURL controller:presenter];
-            }];
-        }
-    }
-}
-@end
-
-__attribute__((noinline)) void *create_dummy_vc(int type) {
-    SCIDummyViewController *vc = [[SCIDummyViewController alloc] init];
-    if (type == 1) {
-        vc.targetURL = @"instagram://internal_settings";
-        vc.isDogfooding = NO;
-    } else {
-        vc.targetURL = nil;
-        vc.isDogfooding = YES;
-    }
-    return (__bridge_retained void *)vc;
-}
 
 __attribute__((naked))
-static void *custom_initializer_internal_settings(void) {
+static void *dummy_socket_func(void) {
     __asm__ __volatile__(
-        "stp x29, x30, [sp, #-16]!\n"
-        "mov x29, sp\n"
-        "mov w0, #1\n"
-        "bl _create_dummy_vc\n"
-        "ldp x29, x30, [sp], #16\n"
         "mov x19, #0\n"
+        "mov x0, #0\n"
         "ret\n"
     );
-}
-
-__attribute__((naked))
-static void *custom_initializer_dogfooding_assistant(void) {
-    __asm__ __volatile__(
-        "stp x29, x30, [sp, #-16]!\n"
-        "mov x29, sp\n"
-        "mov w0, #2\n"
-        "bl _create_dummy_vc\n"
-        "ldp x29, x30, [sp], #16\n"
-        "mov x19, #0\n"
-        "ret\n"
-    );
-}
-
-static void *dummy_socket_func(void *a __unused, void *b __unused, void *c __unused, void *d __unused) {
-    return NULL;
 }
 
 static uint32_t cached_desc_1681030145[32] = {1, 1681030145};
@@ -192,14 +119,6 @@ static void *custom_XPluginsGetDataFunc(int paramID) {
 }
 
 static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
-    if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
-        if (socketID == 1681030145) {
-            return (void *)custom_initializer_internal_settings;
-        }
-        if (socketID == 760840931) {
-            return (void *)custom_initializer_dogfooding_assistant;
-        }
-    }
     void *res = NULL;
     if (orig_XPluginsGetFunctionPtrFromID) {
         res = orig_XPluginsGetFunctionPtrFromID(socketID, arg2);
@@ -232,15 +151,6 @@ typedef int (*FBEndToEndIsRunningSapienzFn)(void *a1);
 static FBEndToEndIsRunningJestE2EFn orig_FBEndToEndIsRunningJestE2E = NULL;
 static FBEndToEndIsRunningSapienzFn orig_FBEndToEndIsRunningSapienz = NULL;
 
-static BOOL gSCIDuringBugReportMenuTapHandler = NO;
-
-void SCISetDuringBugReportMenuTapHandler(BOOL during) {
-    gSCIDuringBugReportMenuTapHandler = during;
-}
-
-BOOL SCIIsDuringBugReportMenuTapHandler(void) {
-    return gSCIDuringBugReportMenuTapHandler;
-}
 
 static uintptr_t get_instagram_base_address(void) {
     static uintptr_t cached_base = 0;
@@ -268,11 +178,6 @@ static uintptr_t get_instagram_base_address(void) {
 
 static int custom_FBEndToEndIsRunningJestE2E(void) {
     if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
-        if (gSCIDuringBugReportMenuTapHandler) {
-            os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E MATCH tap time (via flag) -> returning 1");
-            return 1;
-        }
-        
         void *ret_addr = __builtin_return_address(0);
         uintptr_t base = get_instagram_base_address();
         if (base != 0) {

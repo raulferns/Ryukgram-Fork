@@ -156,18 +156,6 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
     }
 }
 
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    ILOG("tableView:didSelectRowAtIndexPath: section=%ld, row=%ld", (long)indexPath.section, (long)indexPath.row);
-
-    if (SCIInternalMenuEnabled()) {
-        SCISetDuringBugReportMenuTapHandler(YES);
-    }
-    %orig(tableView, indexPath);
-    if (SCIInternalMenuEnabled()) {
-        SCISetDuringBugReportMenuTapHandler(NO);
-    }
-}
-
 %end
 
 %end
