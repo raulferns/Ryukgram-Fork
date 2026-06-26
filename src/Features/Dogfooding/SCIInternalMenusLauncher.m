@@ -84,7 +84,7 @@
             @"instagram://internal_settings",
             @"instagram://settings_devoptions",
             @"instagram://developer_options",
-            @"instagram://settings/developer_options",
+            //@"instagram://settings/developer_options",
             @"instagram://settings/internal",
             @"instagram://debug",
             @"instagram://debug_settings",
