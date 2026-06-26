@@ -131,6 +131,39 @@ static int custom_FBEndToEndIsRunningSapienz(void *a1) {
     return 0;
 }
 
+typedef void *(*XPluginsGetDataFuncOrAbortFn)(int paramID);
+static XPluginsGetDataFuncOrAbortFn orig_XPluginsGetDataFuncOrAbort = NULL;
+
+static uint32_t cached_desc_1681030145[32] = {1, 0};
+
+static const void *mock_func_1681030145(void) {
+    return &cached_desc_1681030145;
+}
+
+static void *custom_XPluginsGetDataFuncOrAbort(int paramID) {
+    if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
+        if (paramID == 1681030145) {
+            if (orig_XPluginsGetDataFuncOrAbort) {
+                void *res = orig_XPluginsGetDataFuncOrAbort(paramID);
+                if (res) {
+                    typedef const uint32_t *(*DescriptorFunc)(void);
+                    const uint32_t *real_desc = ((DescriptorFunc)res)();
+                    if (real_desc) {
+                        cached_desc_1681030145[1] = real_desc[1];
+                        os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFuncOrAbort: paramID %d, real socketID is %u", paramID, real_desc[1]);
+                    }
+                }
+            }
+            return (void *)mock_func_1681030145;
+        }
+    }
+    if (orig_XPluginsGetDataFuncOrAbort) {
+        return orig_XPluginsGetDataFuncOrAbort(paramID);
+    }
+    return NULL;
+}
+
+
 
 // ---------------------------------------------------------------------------
 #pragma mark - ObjC hook installation
@@ -183,7 +216,7 @@ NSString *SCIInternalMenusForceApplyNow(void) {
 
 %ctor {
     @autoreleasepool {
-        struct rebinding rebs[2];
+        struct rebinding rebs[3];
         rebs[0].name = "FBEndToEndIsRunningJestE2E";
         rebs[0].replacement = (void *)custom_FBEndToEndIsRunningJestE2E;
         rebs[0].replaced = (void **)&orig_FBEndToEndIsRunningJestE2E;
@@ -192,7 +225,11 @@ NSString *SCIInternalMenusForceApplyNow(void) {
         rebs[1].replacement = (void *)custom_FBEndToEndIsRunningSapienz;
         rebs[1].replaced = (void **)&orig_FBEndToEndIsRunningSapienz;
 
-        int rc = rebind_symbols(rebs, 2);
+        rebs[2].name = "XPluginsGetDataFuncOrAbort";
+        rebs[2].replacement = (void *)custom_XPluginsGetDataFuncOrAbort;
+        rebs[2].replaced = (void **)&orig_XPluginsGetDataFuncOrAbort;
+
+        int rc = rebind_symbols(rebs, 3);
         NSLog(@"[RyukGram] fishhook resolved bindings, rc = %d", rc);
         
         if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {

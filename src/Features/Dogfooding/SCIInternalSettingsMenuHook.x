@@ -79,11 +79,11 @@ internalSettingsAvailabilityStatus:(long)arg8
 showLoggedOutInternalSettings:(BOOL)arg10
 showShakeToReportPreferenceToggle:(BOOL)arg11 {
     if (SCIInternalMenuEnabled()) {
-        ILOG("initWithDeviceSession: forcing internalSettingsAvailabilityStatus=2 to bypass MobileConfig socket call");
+        ILOG("initWithDeviceSession: using natively computed internalSettingsAvailabilityStatus=%ld", arg8);
         if (arg2) {
             [SCIDogfoodObjectRuntime noteLiveUserSession:arg2 source:@"IGBugReportMenuViewController.initWithDeviceSession"];
         }
-        return %orig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, 2, YES, YES, YES);
+        return %orig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, YES, YES, YES);
     }
     return %orig;
 }
@@ -132,22 +132,6 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
                 ILOG("viewDidLoad: userSession was nil, patched with activeUserSession");
             }
         }
-
-        BOOL patched = NO;
-        if (currentSession) {
-            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
-            SCIPatchIvarToBool(self, "showInternalSettings", YES);
-            SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
-        } else {
-            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 2); // Denied
-            SCIPatchIvarToBool(self, "showInternalSettings", NO);
-            SCIPatchIvarToBool(self, "showDogfoodingAssistant", NO);
-        }
-        SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
-        if (SCIInternalMenuLoggedOutEnabled()) {
-            SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
-        }
-        ILOG("viewDidLoad: patched ivars directly before orig (status=%s, loggedIn=%s)", patched ? "OK" : "MISS", currentSession ? "YES" : "NO");
     }
     %orig;
     if (SCIInternalMenuEnabled()) {
