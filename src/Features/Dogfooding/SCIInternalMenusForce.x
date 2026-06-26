@@ -143,17 +143,6 @@ static const void *mock_func_1681030145(void) {
 static void *custom_XPluginsGetDataFuncOrAbort(int paramID) {
     if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
         if (paramID == 1681030145) {
-            if (orig_XPluginsGetDataFuncOrAbort) {
-                void *res = orig_XPluginsGetDataFuncOrAbort(paramID);
-                if (res) {
-                    typedef const uint32_t *(*DescriptorFunc)(void);
-                    const uint32_t *real_desc = ((DescriptorFunc)res)();
-                    if (real_desc) {
-                        cached_desc_1681030145[1] = real_desc[1];
-                        os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFuncOrAbort: paramID %d, real socketID is %u", paramID, real_desc[1]);
-                    }
-                }
-            }
             return (void *)mock_func_1681030145;
         }
     }
@@ -162,6 +151,7 @@ static void *custom_XPluginsGetDataFuncOrAbort(int paramID) {
     }
     return NULL;
 }
+
 
 
 
