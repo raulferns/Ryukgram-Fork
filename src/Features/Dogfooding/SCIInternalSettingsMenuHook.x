@@ -132,6 +132,22 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
                 ILOG("viewDidLoad: userSession was nil, patched with activeUserSession");
             }
         }
+
+        BOOL patched = NO;
+        if (currentSession) {
+            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
+            SCIPatchIvarToBool(self, "showInternalSettings", YES);
+            SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
+        } else {
+            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 2); // Denied
+            SCIPatchIvarToBool(self, "showInternalSettings", NO);
+            SCIPatchIvarToBool(self, "showDogfoodingAssistant", NO);
+        }
+        SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
+        if (SCIInternalMenuLoggedOutEnabled()) {
+            SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
+        }
+        ILOG("viewDidLoad: patched ivars directly before orig (status=%s, loggedIn=%s)", patched ? "OK" : "MISS", currentSession ? "YES" : "NO");
     }
     %orig;
     if (SCIInternalMenuEnabled()) {
