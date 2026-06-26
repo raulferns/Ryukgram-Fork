@@ -73,7 +73,7 @@ id sciDirectUserResolverUserForPK(NSString *pk) {
         Ivar qIv = class_getInstanceVariable([userMap class], "_queue");
         id qObj = qIv ? object_getIvar(userMap, qIv) : nil;
         Class dqCls = NSClassFromString(@"OS_dispatch_queue");
-        dispatch_queue_t userQueue = (dqCls && [qObj isKindOfClass:dqCls]) ? (dispatch_queue_t)qObj : nil;
+        dispatch_queue_t userQueue = (dqCls && [qObj isKindOfClass:dqCls]) ? (__bridge dispatch_queue_t)qObj : nil;
 
         __block id result = nil;
         dispatch_block_t lookup = ^{

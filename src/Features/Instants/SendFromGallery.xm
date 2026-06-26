@@ -11,7 +11,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ImageIO/ImageIO.h>
-#import <Accelerate/Accelerate.h>
+#import <vImage/vImage.h>
 #import <objc/runtime.h>
 #import "../../Utils.h"
 #import "../../SCIChrome.h"

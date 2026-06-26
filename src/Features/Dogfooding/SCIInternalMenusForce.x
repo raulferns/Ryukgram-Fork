@@ -185,8 +185,8 @@ static int custom_FBEndToEndIsRunningJestE2E(void) {
             uintptr_t start = base + 0x6FEB960;
             uintptr_t end = start + 0x9c;
             if (ip >= start && ip <= end) {
-                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E builder time -> returning 0 to bypass initializer crash");
-                return 0;
+                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E builder time -> returning 1 to bypass initializer crash and force Available status");
+                return 1;
             }
         }
     }

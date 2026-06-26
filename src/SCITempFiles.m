@@ -63,7 +63,7 @@ static const NSTimeInterval kSCIDefaultTTL = 300.0;
 
 	dispatch_async([self queue], ^{
 		for (NSString *p in (parentTracked ? @[path, parent] : @[path])) {
-			dispatch_source_t timer = [self timers][p];
+			dispatch_source_t timer = (__bridge dispatch_source_t)[self timers][p];
 			if (timer) {
 				dispatch_source_cancel(timer);
 				[[self timers] removeObjectForKey:p];
@@ -83,7 +83,7 @@ static const NSTimeInterval kSCIDefaultTTL = 300.0;
 	if (ttl < 1.0) ttl = 1.0;
 
 	dispatch_async([self queue], ^{
-		dispatch_source_t existing = [self timers][path];
+		dispatch_source_t existing = (__bridge dispatch_source_t)[self timers][path];
 		if (existing) dispatch_source_cancel(existing);
 
 		dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, [self queue]);
@@ -97,7 +97,7 @@ static const NSTimeInterval kSCIDefaultTTL = 300.0;
 			dispatch_source_cancel(timer);
 		});
 
-		[self timers][path] = timer;
+		[self timers][path] = (__bridge id)timer;
 		dispatch_resume(timer);
 	});
 }
