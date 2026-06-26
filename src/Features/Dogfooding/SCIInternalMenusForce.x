@@ -90,7 +90,7 @@ static uintptr_t get_instagram_base_address(void);
 }
 @end
 
-static void *create_dummy_vc(int type) {
+__attribute__((noinline)) void *create_dummy_vc(int type) {
     SCIDummyViewController *vc = [[SCIDummyViewController alloc] init];
     if (type == 1) {
         vc.targetURL = @"instagram://internal_settings";
