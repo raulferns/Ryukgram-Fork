@@ -36,98 +36,12 @@
 
 
 // ---------------------------------------------------------------------------
-#pragma mark - XPlugins / fishhook Gating Hook
+#pragma mark - Helper declarations
 // ---------------------------------------------------------------------------
-
-typedef void *(*XPluginsGetDataFuncOrAbortFn)(int paramID);
-typedef void *(*XPluginsGetFunctionPtrFromIDFn)(int socketID, int arg2);
-
-static XPluginsGetDataFuncOrAbortFn orig_XPluginsGetDataFuncOrAbort = NULL;
-static XPluginsGetFunctionPtrFromIDFn orig_XPluginsGetFunctionPtrFromID = NULL;
-
-static uintptr_t get_instagram_base_address(void);
-
 
 #import <UIKit/UIKit.h>
 
-__attribute__((naked))
-static void *dummy_socket_func(void) {
-    __asm__ __volatile__(
-        "mov x19, #0\n"
-        "mov x0, #0\n"
-        "ret\n"
-    );
-}
-
-static uint32_t cached_desc_1681030145[32] = {1, 1681030145};
-static uint32_t cached_desc_760840931[32] = {1, 760840931};
-
-static const void *mock_func_1681030145(void) {
-    return &cached_desc_1681030145;
-}
-
-static const void *mock_func_760840931(void) {
-    return &cached_desc_760840931;
-}
-
-static void *custom_XPluginsGetDataFunc(int paramID) {
-    if (orig_XPluginsGetDataFuncOrAbort) {
-        void *res = orig_XPluginsGetDataFuncOrAbort(paramID);
-        if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
-            if (paramID == 1681030145) {
-                static BOOL copied = NO;
-                if (!copied) {
-                    cached_desc_1681030145[0] = 1; // force enabled
-                    cached_desc_1681030145[1] = 1681030145; // force socket ID
-                    if (res) {
-                        typedef const void *(*DescriptorFunc)(void);
-                        const void *real_desc = ((DescriptorFunc)res)();
-                        if (real_desc) {
-                            memcpy(cached_desc_1681030145, real_desc, 128);
-                            cached_desc_1681030145[0] = 1; // force enabled
-                            cached_desc_1681030145[1] = 1681030145; // force socket ID
-                        }
-                    }
-                    copied = YES;
-                    os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFunc: paramID %d, initialized descriptor", paramID);
-                }
-                return (void *)mock_func_1681030145;
-            }
-            if (paramID == 760840931) {
-                static BOOL copied = NO;
-                if (!copied) {
-                    cached_desc_760840931[0] = 1; // force enabled
-                    cached_desc_760840931[1] = 760840931; // force socket ID
-                    if (res) {
-                        typedef const void *(*DescriptorFunc)(void);
-                        const void *real_desc = ((DescriptorFunc)res)();
-                        if (real_desc) {
-                            memcpy(cached_desc_760840931, real_desc, 128);
-                            cached_desc_760840931[0] = 1; // force enabled
-                            cached_desc_760840931[1] = 760840931; // force socket ID
-                        }
-                    }
-                    copied = YES;
-                    os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFunc: paramID %d, initialized descriptor", paramID);
-                }
-                return (void *)mock_func_760840931;
-            }
-        }
-        return res;
-    }
-    return NULL;
-}
-
-static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
-    void *res = NULL;
-    if (orig_XPluginsGetFunctionPtrFromID) {
-        res = orig_XPluginsGetFunctionPtrFromID(socketID, arg2);
-    }
-    if (!res) {
-        return (void *)dummy_socket_func;
-    }
-    return res;
-}
+static uintptr_t get_instagram_base_address(void);
 
 // ---------------------------------------------------------------------------
 #pragma mark - Employee Status Hook (sub_106FEB960) via GOT fishhook
@@ -269,24 +183,16 @@ NSString *SCIInternalMenusForceApplyNow(void) {
 
 %ctor {
     @autoreleasepool {
-        struct rebinding rebs[4];
-        rebs[0].name = "XPluginsGetDataFuncOrAbort";
-        rebs[0].replacement = (void *)custom_XPluginsGetDataFunc;
-        rebs[0].replaced = (void **)&orig_XPluginsGetDataFuncOrAbort;
+        struct rebinding rebs[2];
+        rebs[0].name = "FBEndToEndIsRunningJestE2E";
+        rebs[0].replacement = (void *)custom_FBEndToEndIsRunningJestE2E;
+        rebs[0].replaced = (void **)&orig_FBEndToEndIsRunningJestE2E;
 
-        rebs[1].name = "XPluginsGetFunctionPtrFromID";
-        rebs[1].replacement = (void *)custom_XPluginsGetFunctionPtrFromID;
-        rebs[1].replaced = (void **)&orig_XPluginsGetFunctionPtrFromID;
+        rebs[1].name = "FBEndToEndIsRunningSapienz";
+        rebs[1].replacement = (void *)custom_FBEndToEndIsRunningSapienz;
+        rebs[1].replaced = (void **)&orig_FBEndToEndIsRunningSapienz;
 
-        rebs[2].name = "FBEndToEndIsRunningJestE2E";
-        rebs[2].replacement = (void *)custom_FBEndToEndIsRunningJestE2E;
-        rebs[2].replaced = (void **)&orig_FBEndToEndIsRunningJestE2E;
-
-        rebs[3].name = "FBEndToEndIsRunningSapienz";
-        rebs[3].replacement = (void *)custom_FBEndToEndIsRunningSapienz;
-        rebs[3].replaced = (void **)&orig_FBEndToEndIsRunningSapienz;
-
-        int rc = rebind_symbols(rebs, 4);
+        int rc = rebind_symbols(rebs, 2);
         NSLog(@"[RyukGram] fishhook resolved bindings, rc = %d", rc);
         
         if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
