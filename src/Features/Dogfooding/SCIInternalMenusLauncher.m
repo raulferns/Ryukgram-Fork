@@ -61,11 +61,11 @@
 
 // +[IGURLHandler openInternalURL:presentationConfig:controller:animated:userSession:annotation:]
 // Best-effort — tries common internal settings URL schemes.
-+ (NSString *)openInternalURLString:(NSString *)urlString {
++ (NSString *)openInternalURLString:(nullable NSString *)urlString {
     return [self openInternalURLString:urlString controller:nil];
 }
 
-+ (NSString *)openInternalURLString:(NSString *)urlString controller:(nullable UIViewController *)controller {
++ (NSString *)openInternalURLString:(nullable NSString *)urlString controller:(nullable UIViewController *)controller {
     id session = [self session];
     if (!session) return @"no live user session";
     Class C = NSClassFromString(@"IGURLHandler");
@@ -76,14 +76,41 @@
     UIViewController *top = controller ?: [self topVC];
     if (!top) return @"no presenter view controller";
     
-    NSURL *url = [NSURL URLWithString:urlString];
-    @try {
-        BOOL ok = ((BOOL(*)(id,SEL,id,id,id,BOOL,id,id))objc_msgSend)(
-            C, s, url, nil, top, YES, session, nil);
-        return ok ? [NSString stringWithFormat:@"opened: %@", urlString]
-                  : @"openInternalURL returned NO";
-    } @catch (id e) {
-        return [NSString stringWithFormat:@"threw: %@", e];
+    NSArray<NSString *> *uris;
+    if (urlString && urlString.length > 0) {
+        uris = @[urlString];
+    } else {
+        uris = @[
+            @"instagram://internal_settings",
+            @"instagram://settings_devoptions",
+            @"instagram://developer_options",
+            @"instagram://settings/developer_options",
+            @"instagram://settings/internal",
+            @"instagram://debug",
+            @"instagram://debug_settings",
+            @"instagram://settings/debug",
+            @"instagram://settings/account/dev_options",
+            @"instagram://settings/dev_options"
+        ];
     }
+    
+    NSMutableArray<NSString *> *errors = [NSMutableArray new];
+    for (NSString *uri in uris) {
+        NSURL *url = [NSURL URLWithString:uri];
+        @try {
+            BOOL ok = ((BOOL(*)(id,SEL,id,id,id,BOOL,id,id))objc_msgSend)(
+                C, s, url, nil, top, YES, session, nil);
+            if (ok) {
+                MLOG("Successfully opened internal URL: %{public}@", uri);
+                return [NSString stringWithFormat:@"opened: %@", uri];
+            } else {
+                [errors addObject:[NSString stringWithFormat:@"%@ (returned NO)", uri]];
+            }
+        } @catch (id e) {
+            [errors addObject:[NSString stringWithFormat:@"%@ (threw: %@)", uri, e]];
+        }
+    }
+    
+    return [NSString stringWithFormat:@"All URIs failed: %@", [errors componentsJoinedByString:@", "]];
 }
 @end

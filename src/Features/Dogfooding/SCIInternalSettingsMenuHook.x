@@ -156,6 +156,20 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
     }
 }
 
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (SCIInternalMenuEnabled()) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+        if (cell && SCICellContainsText(cell, @"Internal Settings")) {
+            ILOG("Tapped Internal Settings cell. Triggering custom open sequence with fallback URIs...");
+            NSString *res = [SCIInternalMenusLauncher openInternalURLString:nil controller:self];
+            ILOG("Open internal settings URL sequence result: %@", res);
+            [tableView deselectRowAtIndexPath:indexPath animated:YES];
+            return;
+        }
+    }
+    %orig;
+}
+
 %end
 
 %end

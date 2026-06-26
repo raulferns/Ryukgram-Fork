@@ -5,7 +5,7 @@ NS_ASSUME_NONNULL_BEGIN
 // entrypoints + the live user session/config observed from Instagram runtime.
 + (NSString *)openDogfoodingNotesSettings;     // +notesDogfoodingSettingsOpenOnViewController:userSession: (reliable)
 + (NSString *)openDogfoodingSettingsVC;        // +openWithConfig:onViewController:userSession: / initWithConfig:userSession: when config is captured
-+ (NSString *)openInternalURLString:(NSString *)urlString; // +[IGURLHandler openInternalURL:...]
-+ (NSString *)openInternalURLString:(NSString *)urlString controller:(nullable UIViewController *)controller;
++ (NSString *)openInternalURLString:(nullable NSString *)urlString; // +[IGURLHandler openInternalURL:...]
++ (NSString *)openInternalURLString:(nullable NSString *)urlString controller:(nullable UIViewController *)controller;
 @end
 NS_ASSUME_NONNULL_END
