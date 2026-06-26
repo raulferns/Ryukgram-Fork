@@ -115,7 +115,8 @@ static void SCIReinstallCrashSignalHandlers(void) {
 static void SCIInstallCrashSignalHandlers(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        NSString *path = [[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Caches"] stringByAppendingPathComponent:@"ryukgram_internal_gate_crash.marker"];
+        NSString *cachesDir = [NSSearchPathForDirectoriesInDirectories(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+        NSString *path = [cachesDir stringByAppendingPathComponent:@"ryukgram_internal_gate_crash.marker"];
         const char *fs = path.fileSystemRepresentation;
         if (fs) strncpy(gSCICrashMarkerPath, fs, sizeof(gSCICrashMarkerPath) - 1);
         SCIReinstallCrashSignalHandlers();
