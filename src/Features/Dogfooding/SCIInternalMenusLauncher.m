@@ -85,12 +85,12 @@
             @"instagram://settings_devoptions",
             @"instagram://developer_options",
             //@"instagram://settings/developer_options",
-            @"instagram://settings/internal",
+            //@"instagram://settings/internal",
             @"instagram://debug",
             @"instagram://debug_settings",
-            @"instagram://settings/debug",
-            @"instagram://settings/account/dev_options",
-            @"instagram://settings/dev_options"
+            //@"instagram://settings/debug",
+            //@"instagram://settings/account/dev_options",
+            //@"instagram://settings/dev_options"
         ];
     }
     
