@@ -120,27 +120,34 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
 // and the subtitle builder both see the correct values.
 - (void)viewDidLoad {
     if (SCIInternalMenuEnabled()) {
-        BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
-        SCIPatchIvarToBool(self, "showInternalSettings", YES);
-        SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
+        Ivar sessionIvar = class_getInstanceVariable(object_getClass(self), "userSession");
+        id currentSession = nil;
+        if (sessionIvar) {
+            currentSession = object_getIvar(self, sessionIvar);
+        }
+        if (!currentSession) {
+            currentSession = [SCIDogfoodObjectRuntime activeUserSession];
+            if (currentSession && sessionIvar) {
+                object_setIvar(self, sessionIvar, currentSession);
+                ILOG("viewDidLoad: userSession was nil, patched with activeUserSession");
+            }
+        }
+
+        BOOL patched = NO;
+        if (currentSession) {
+            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 0);
+            SCIPatchIvarToBool(self, "showInternalSettings", YES);
+            SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
+        } else {
+            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 2); // Denied
+            SCIPatchIvarToBool(self, "showInternalSettings", NO);
+            SCIPatchIvarToBool(self, "showDogfoodingAssistant", NO);
+        }
         SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
         if (SCIInternalMenuLoggedOutEnabled()) {
             SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
         }
-        ILOG("viewDidLoad: patched ivars directly before orig (status=%s)", patched ? "OK" : "MISS");
-
-        // Safety: patch userSession if nil
-        Ivar sessionIvar = class_getInstanceVariable(object_getClass(self), "userSession");
-        if (sessionIvar) {
-            id currentSession = object_getIvar(self, sessionIvar);
-            if (!currentSession) {
-                id activeSession = [SCIDogfoodObjectRuntime activeUserSession];
-                if (activeSession) {
-                    object_setIvar(self, sessionIvar, activeSession);
-                    ILOG("viewDidLoad: userSession was nil, patched with activeUserSession");
-                }
-            }
-        }
+        ILOG("viewDidLoad: patched ivars directly before orig (status=%s, loggedIn=%s)", patched ? "OK" : "MISS", currentSession ? "YES" : "NO");
     }
     %orig;
     if (SCIInternalMenuEnabled()) {
@@ -151,31 +158,6 @@ showShakeToReportPreferenceToggle:(BOOL)arg11 {
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     ILOG("tableView:didSelectRowAtIndexPath: section=%ld, row=%ld", (long)indexPath.section, (long)indexPath.row);
-    if (SCIInternalMenuEnabled()) {
-        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-        if (SCICellContainsText(cell, @"Internal Settings")) {
-            id session = [SCIDogfoodObjectRuntime activeUserSession];
-            if (session) {
-                ILOG("Intercepted Internal Settings tap, launching via URL handler");
-                NSString *res = [SCIInternalMenusLauncher openInternalURLString:@"instagram://internal_settings" controller:self];
-                ILOG("Launcher result: %s", res.UTF8String);
-                [tableView deselectRowAtIndexPath:indexPath animated:YES];
-                return;
-            } else {
-                ILOG("Internal Settings tap while logged out, letting native code handle");
-            }
-        }
-        // Comment out custom Dogfooding Assistant interceptor to let the native flow run
-        /*
-        if (SCICellContainsText(cell, @"Dogfooding Assistant")) {
-            ILOG("Intercepted Dogfooding Assistant tap, launching via VC");
-            NSString *res = [SCIInternalMenusLauncher openDogfoodingSettingsVC];
-            ILOG("Launcher result: %s", res.UTF8String);
-            [tableView deselectRowAtIndexPath:indexPath animated:YES];
-            return;
-        }
-        */
-    }
 
     if (SCIInternalMenuEnabled()) {
         SCISetDuringBugReportMenuTapHandler(YES);

@@ -48,13 +48,92 @@ static XPluginsGetFunctionPtrFromIDFn orig_XPluginsGetFunctionPtrFromID = NULL;
 static uintptr_t get_instagram_base_address(void);
 
 
+#import <UIKit/UIKit.h>
+#import "SCIInternalMenusLauncher.h"
+#import "SCIDogfoodObjectRuntime.h"
+
+@interface SCIDummyViewController : UIViewController
+@property (nonatomic, strong) NSString *targetURL;
+@property (nonatomic, assign) BOOL isDogfooding;
+@end
+
+@implementation SCIDummyViewController
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    
+    UIViewController *presenter = self.presentingViewController;
+    UINavigationController *nav = self.navigationController;
+    
+    if (self.isDogfooding) {
+        if (nav) {
+            NSMutableArray *vcs = [nav.viewControllers mutableCopy];
+            [vcs removeObject:self];
+            [nav setViewControllers:vcs animated:NO];
+            [SCIDogfoodObjectRuntime tryOpenNativeDogfoodSettings];
+        } else if (presenter) {
+            [self dismissViewControllerAnimated:NO completion:^{
+                [SCIDogfoodObjectRuntime tryOpenNativeDogfoodSettings];
+            }];
+        }
+    } else if (self.targetURL) {
+        if (nav) {
+            NSMutableArray *vcs = [nav.viewControllers mutableCopy];
+            [vcs removeObject:self];
+            [nav setViewControllers:vcs animated:NO];
+            [SCIInternalMenusLauncher openInternalURLString:self.targetURL controller:nav];
+        } else if (presenter) {
+            [self dismissViewControllerAnimated:NO completion:^{
+                [SCIInternalMenusLauncher openInternalURLString:self.targetURL controller:presenter];
+            }];
+        }
+    }
+}
+@end
+
+static void *create_dummy_vc(int type) {
+    SCIDummyViewController *vc = [[SCIDummyViewController alloc] init];
+    if (type == 1) {
+        vc.targetURL = @"instagram://internal_settings";
+        vc.isDogfooding = NO;
+    } else {
+        vc.targetURL = nil;
+        vc.isDogfooding = YES;
+    }
+    return (__bridge_retained void *)vc;
+}
+
+__attribute__((naked))
+static void *custom_initializer_internal_settings(void) {
+    __asm__ __volatile__(
+        "stp x29, x30, [sp, #-16]!\n"
+        "mov x29, sp\n"
+        "mov w0, #1\n"
+        "bl _create_dummy_vc\n"
+        "ldp x29, x30, [sp], #16\n"
+        "mov x19, #0\n"
+        "ret\n"
+    );
+}
+
+__attribute__((naked))
+static void *custom_initializer_dogfooding_assistant(void) {
+    __asm__ __volatile__(
+        "stp x29, x30, [sp, #-16]!\n"
+        "mov x29, sp\n"
+        "mov w0, #2\n"
+        "bl _create_dummy_vc\n"
+        "ldp x29, x30, [sp], #16\n"
+        "mov x19, #0\n"
+        "ret\n"
+    );
+}
+
 static void *dummy_socket_func(void *a __unused, void *b __unused, void *c __unused, void *d __unused) {
-    // Return NULL (nil) to prevent EXC_BAD_ACCESS if the caller expects an object
     return NULL;
 }
 
-static uint32_t cached_desc_1681030145[32] = {1, 0};
-static uint32_t cached_desc_760840931[32] = {1, 0};
+static uint32_t cached_desc_1681030145[32] = {1, 1681030145};
+static uint32_t cached_desc_760840931[32] = {1, 760840931};
 
 static const void *mock_func_1681030145(void) {
     return &cached_desc_1681030145;
@@ -69,24 +148,40 @@ static void *custom_XPluginsGetDataFunc(int paramID) {
         void *res = orig_XPluginsGetDataFuncOrAbort(paramID);
         if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
             if (paramID == 1681030145) {
-                if (res) {
-                    typedef const uint32_t *(*DescriptorFunc)(void);
-                    const uint32_t *real_desc = ((DescriptorFunc)res)();
-                    if (real_desc) {
-                        cached_desc_1681030145[1] = real_desc[1];
-                        os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFunc: paramID %d, real socketID is %u", paramID, real_desc[1]);
+                static BOOL copied = NO;
+                if (!copied) {
+                    cached_desc_1681030145[0] = 1; // force enabled
+                    cached_desc_1681030145[1] = 1681030145; // force socket ID
+                    if (res) {
+                        typedef const void *(*DescriptorFunc)(void);
+                        const void *real_desc = ((DescriptorFunc)res)();
+                        if (real_desc) {
+                            memcpy(cached_desc_1681030145, real_desc, 128);
+                            cached_desc_1681030145[0] = 1; // force enabled
+                            cached_desc_1681030145[1] = 1681030145; // force socket ID
+                        }
                     }
+                    copied = YES;
+                    os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFunc: paramID %d, initialized descriptor", paramID);
                 }
                 return (void *)mock_func_1681030145;
             }
             if (paramID == 760840931) {
-                if (res) {
-                    typedef const uint32_t *(*DescriptorFunc)(void);
-                    const uint32_t *real_desc = ((DescriptorFunc)res)();
-                    if (real_desc) {
-                        cached_desc_760840931[1] = real_desc[1];
-                        os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFunc: paramID %d, real socketID is %u", paramID, real_desc[1]);
+                static BOOL copied = NO;
+                if (!copied) {
+                    cached_desc_760840931[0] = 1; // force enabled
+                    cached_desc_760840931[1] = 760840931; // force socket ID
+                    if (res) {
+                        typedef const void *(*DescriptorFunc)(void);
+                        const void *real_desc = ((DescriptorFunc)res)();
+                        if (real_desc) {
+                            memcpy(cached_desc_760840931, real_desc, 128);
+                            cached_desc_760840931[0] = 1; // force enabled
+                            cached_desc_760840931[1] = 760840931; // force socket ID
+                        }
                     }
+                    copied = YES;
+                    os_log(OS_LOG_DEFAULT, "[SCIGate] Hooked XPluginsGetDataFunc: paramID %d, initialized descriptor", paramID);
                 }
                 return (void *)mock_func_760840931;
             }
@@ -97,14 +192,13 @@ static void *custom_XPluginsGetDataFunc(int paramID) {
 }
 
 static void *custom_XPluginsGetFunctionPtrFromID(int socketID, int arg2) {
-    if (socketID == 999999) {
-        return (void *)dummy_socket_func;
-    }
-    // Safeguard: socketID is a 32-bit int. Garbage heap pointers casted to 32-bit
-    // int are typically large numbers, whereas real socket IDs are small indices.
-    if (socketID <= 0 || socketID > 10000000) {
-        os_log(OS_LOG_DEFAULT, "[SCIGate] XPluginsGetFunctionPtrFromID: garbage socketID %d detected, returning dummy_socket_func", socketID);
-        return (void *)dummy_socket_func;
+    if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
+        if (socketID == 1681030145) {
+            return (void *)custom_initializer_internal_settings;
+        }
+        if (socketID == 760840931) {
+            return (void *)custom_initializer_dogfooding_assistant;
+        }
     }
     void *res = NULL;
     if (orig_XPluginsGetFunctionPtrFromID) {
