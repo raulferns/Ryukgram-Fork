@@ -79,11 +79,11 @@ internalSettingsAvailabilityStatus:(long)arg8
 showLoggedOutInternalSettings:(BOOL)arg10
 showShakeToReportPreferenceToggle:(BOOL)arg11 {
     if (SCIInternalMenuEnabled()) {
-        ILOG("initWithDeviceSession: using natively computed internalSettingsAvailabilityStatus=%ld", arg8);
+        ILOG("initWithDeviceSession: forcing internalSettingsAvailabilityStatus=0 instead of %ld", arg8);
         if (arg2) {
             [SCIDogfoodObjectRuntime noteLiveUserSession:arg2 source:@"IGBugReportMenuViewController.initWithDeviceSession"];
         }
-        return %orig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, YES, YES, YES);
+        return %orig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, 0, YES, YES, YES);
     }
     return %orig;
 }

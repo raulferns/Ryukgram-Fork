@@ -59,98 +59,7 @@ static uintptr_t get_instagram_base_address(void);
 
 #import <os/log.h>
 
-typedef int (*FBEndToEndIsRunningJestE2EFn)(void);
-typedef int (*FBEndToEndIsRunningSapienzFn)(void *a1);
 
-static FBEndToEndIsRunningJestE2EFn orig_FBEndToEndIsRunningJestE2E = NULL;
-static FBEndToEndIsRunningSapienzFn orig_FBEndToEndIsRunningSapienz = NULL;
-
-
-static uintptr_t get_instagram_base_address(void) {
-    static uintptr_t cached_base = 0;
-    if (cached_base != 0) return cached_base;
-    
-    uint32_t count = _dyld_image_count();
-    for (uint32_t i = 0; i < count; i++) {
-        const char *name = _dyld_get_image_name(i);
-        if (name) {
-            size_t len = strlen(name);
-            if ((len >= 10 && strcmp(name + len - 10, "/Instagram") == 0) || strcmp(name, "Instagram") == 0) {
-                cached_base = (uintptr_t)_dyld_get_image_header(i);
-                os_log(OS_LOG_DEFAULT, "[SCIGate] Found Instagram binary at index %u, base = %p", i, (void *)cached_base);
-                break;
-            }
-        }
-    }
-    
-    if (cached_base == 0) {
-        cached_base = (uintptr_t)_dyld_get_image_header(0);
-        os_log(OS_LOG_DEFAULT, "[SCIGate] WARNING: Instagram binary not found by name, falling back to index 0: %p", (void *)cached_base);
-    }
-    return cached_base;
-}
-
-static int custom_FBEndToEndIsRunningJestE2E(void) {
-    if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
-        void *ret_addr = __builtin_return_address(0);
-        uintptr_t base = get_instagram_base_address();
-        if (base != 0) {
-            uintptr_t ip = (uintptr_t)ret_addr;
-            uintptr_t start = base + 0x6FEB960;
-            uintptr_t end = start + 0x9c;
-            if (ip >= start && ip <= end) {
-                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningJestE2E builder time -> returning 1 to bypass initializer crash and force Available status");
-                return 1;
-            }
-        }
-    }
-    if (orig_FBEndToEndIsRunningJestE2E) {
-        return orig_FBEndToEndIsRunningJestE2E();
-    }
-    return 0;
-}
-
-static int custom_FBEndToEndIsRunningSapienz(void *a1) {
-    if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
-        void *ret_addr = __builtin_return_address(0);
-        uintptr_t base = get_instagram_base_address();
-        os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningSapienz called, base=%p, ret_addr=%p, offset=0x%lx", (void *)base, ret_addr, (unsigned long)((uintptr_t)ret_addr - base));
-        if (base != 0) {
-            uintptr_t start = base + 0x6FEB960;
-            uintptr_t end = start + 0x9c;
-            uintptr_t ip = (uintptr_t)ret_addr;
-            if (ip >= start && ip <= end) {
-                os_log(OS_LOG_DEFAULT, "[SCIGate] FBEndToEndIsRunningSapienz MATCH -> returning 0");
-                return 0;
-            }
-        }
-    }
-    if (orig_FBEndToEndIsRunningSapienz) {
-        return orig_FBEndToEndIsRunningSapienz(a1);
-    }
-    return 0;
-}
-
-typedef void *(*XPluginsGetDataFuncOrAbortFn)(int paramID);
-static XPluginsGetDataFuncOrAbortFn orig_XPluginsGetDataFuncOrAbort = NULL;
-
-static uint32_t cached_desc_1681030145[32] = {1, 0};
-
-static const void *mock_func_1681030145(void) {
-    return &cached_desc_1681030145;
-}
-
-static void *custom_XPluginsGetDataFuncOrAbort(int paramID) {
-    if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
-        if (paramID == 1681030145) {
-            return (void *)mock_func_1681030145;
-        }
-    }
-    if (orig_XPluginsGetDataFuncOrAbort) {
-        return orig_XPluginsGetDataFuncOrAbort(paramID);
-    }
-    return NULL;
-}
 
 
 
@@ -206,22 +115,6 @@ NSString *SCIInternalMenusForceApplyNow(void) {
 
 %ctor {
     @autoreleasepool {
-        struct rebinding rebs[3];
-        rebs[0].name = "FBEndToEndIsRunningJestE2E";
-        rebs[0].replacement = (void *)custom_FBEndToEndIsRunningJestE2E;
-        rebs[0].replaced = (void **)&orig_FBEndToEndIsRunningJestE2E;
-
-        rebs[1].name = "FBEndToEndIsRunningSapienz";
-        rebs[1].replacement = (void *)custom_FBEndToEndIsRunningSapienz;
-        rebs[1].replaced = (void **)&orig_FBEndToEndIsRunningSapienz;
-
-        rebs[2].name = "XPluginsGetDataFuncOrAbort";
-        rebs[2].replacement = (void *)custom_XPluginsGetDataFuncOrAbort;
-        rebs[2].replaced = (void **)&orig_XPluginsGetDataFuncOrAbort;
-
-        int rc = rebind_symbols(rebs, 3);
-        NSLog(@"[RyukGram] fishhook resolved bindings, rc = %d", rc);
-        
         if ([SCIInternalGatePrefs objCGateEnabledForKey:@"sci_force_internal_settings_menu"]) {
             NSUInteger installed = SCIInternalMenusInstallLocalRuntimeBoolHooks();
             NSLog(@"[RyukGram] Installed %lu ObjC runtime hooks at launch", (unsigned long)installed);
