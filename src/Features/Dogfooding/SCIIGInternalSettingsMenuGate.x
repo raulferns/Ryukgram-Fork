@@ -155,6 +155,72 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
     }
 }
 
+// The original binary's didSelectRowAtIndexPath: (case 3) checks a socket
+// wrapper ivar (nil for non-employees) and a dogfooding eligibility gate
+// (also fails). Both cause a silent early-return — nothing opens.
+// We intercept the Dogfooding Assistant row here, detect it by class name,
+// and directly create + present the VC ourselves.
+- (void)tableView:(id)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (!SCIMenuGateOn()) { %orig; return; }
+
+    // Try to identify if the tapped row is the DogfoodingAssistant row.
+    // The menu builds an ordered array of row objects; the dogfooding assistant
+    // row is typed as IGBugReportingDogfoodingAssistantMenuRowSocketSwift.
+    BOOL isDogfoodRow = NO;
+    @try {
+        Ivar rowsIvar = class_getInstanceVariable(object_getClass(self), "rows");
+        if (rowsIvar) {
+            NSArray *rows = object_getIvar(self, rowsIvar);
+            if (rows && (NSUInteger)indexPath.row < rows.count) {
+                id row = rows[indexPath.row];
+                NSString *cls = NSStringFromClass(object_getClass(row));
+                isDogfoodRow = cls && [cls containsString:@"DogfoodingAssistant"];
+            }
+        }
+    } @catch (__unused id e) {}
+
+    if (!isDogfoodRow) { %orig; return; }
+
+    ILOG("Intercepted Dogfooding Assistant tap — presenting VC directly");
+
+    // Resolve the Swift VC class (mangled name).
+    Class vcClass = NSClassFromString(@"_TtC36IGSundialYourAlgoDogfoodingAssistant50IGSundialYourAlgoDogfoodingAssistantViewController");
+    if (!vcClass) {
+        ILOG("IGSundialYourAlgoDogfoodingAssistantViewController class not found");
+        %orig; // fall through to original (will still fail, but won't crash)
+        return;
+    }
+
+    // Create the VC. Try the analytics-module init, fall back to plain init.
+    UIViewController *dogfoodVC = nil;
+    @try {
+        SEL analyticsSel = @selector(initWithAnalyticsModule:);
+        if ([vcClass instancesRespondToSelector:analyticsSel]) {
+            dogfoodVC = ((id(*)(id,SEL,id))objc_msgSend)([vcClass alloc], analyticsSel, nil);
+        }
+        if (!dogfoodVC) {
+            dogfoodVC = [[vcClass alloc] init];
+        }
+    } @catch (__unused id e) {
+        ILOG("Exception creating DogfoodingAssistantViewController: %s", [[e description] UTF8String]);
+    }
+
+    if (!dogfoodVC || ![dogfoodVC isKindOfClass:UIViewController.class]) {
+        ILOG("Failed to create DogfoodingAssistantViewController");
+        %orig;
+        return;
+    }
+
+    // Present in a nav controller, like the original code path does.
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:dogfoodVC];
+    nav.modalPresentationStyle = UIModalPresentationPageSheet;
+
+    // Deselect the tapped row.
+    @try { [tableView deselectRowAtIndexPath:indexPath animated:YES]; } @catch (__unused id e) {}
+
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
 %end
 
 %end
