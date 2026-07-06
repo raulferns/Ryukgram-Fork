@@ -121,13 +121,16 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
 // Patch them directly once the view is loaded so that didSelectRowAtIndexPath:
 // and the subtitle builder both see the correct values.
 - (void)viewDidLoad {
-    if (SCIMenuGateOn() || [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"]) {
+    BOOL gateOn = SCIMenuGateOn();
+    BOOL forceAvailability = [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"];
+
+    if (gateOn || forceAvailability) {
         Ivar sessionIvar = class_getInstanceVariable(object_getClass(self), "userSession");
         id currentSession = nil;
         if (sessionIvar) {
             currentSession = object_getIvar(self, sessionIvar);
         }
-        if (!currentSession) {
+        if (gateOn && !currentSession) {
             currentSession = [SCIDogfoodObjectRuntime activeUserSession];
             if (currentSession && sessionIvar) {
                 object_setIvar(self, sessionIvar, currentSession);
@@ -136,30 +139,33 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
         }
 
         long long availabilityVal = 0;
-        if ([SCIUtils getBoolPref:@"sci_force_internal_settings_availability"]) {
+        if (forceAvailability) {
             availabilityVal = (long long)[SCIUtils getDoublePref:@"sci_internal_settings_availability_value"];
-        } else if (SCIMenuGateOn()) {
+        } else if (gateOn) {
             availabilityVal = 0;
         }
 
-        BOOL patched = NO;
-        if (currentSession || [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"]) {
-            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", availabilityVal);
-            SCIPatchIvarToBool(self, "showInternalSettings", YES);
-            SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
-        } else {
-            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 2); // Denied
-            SCIPatchIvarToBool(self, "showInternalSettings", NO);
-            SCIPatchIvarToBool(self, "showDogfoodingAssistant", NO);
+        BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", availabilityVal);
+
+        if (gateOn) {
+            if (currentSession) {
+                SCIPatchIvarToBool(self, "showInternalSettings", YES);
+                SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
+            } else {
+                SCIPatchIvarToBool(self, "showInternalSettings", NO);
+                SCIPatchIvarToBool(self, "showDogfoodingAssistant", NO);
+            }
+            SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
+            if ([SCIUtils getBoolPref:@"sci_employee_internal"] || [SCIUtils getBoolPref:@"sci_force_internal_settings_loggedout"]) {
+                SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
+            }
         }
-        SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
-        if ([SCIUtils getBoolPref:@"sci_employee_internal"] || [SCIUtils getBoolPref:@"sci_force_internal_settings_loggedout"]) {
-            SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
-        }
-        ILOG("viewDidLoad: patched ivars directly before orig (patched=%s, status=%lld, loggedIn=%s)", patched ? "YES" : "NO", availabilityVal, currentSession ? "YES" : "NO");
+
+        ILOG("viewDidLoad: patched ivars directly before orig (gateOn=%s, patched=%s, status=%lld, loggedIn=%s)",
+             gateOn ? "YES" : "NO", patched ? "YES" : "NO", availabilityVal, currentSession ? "YES" : "NO");
     }
     %orig;
-    if (SCIMenuGateOn()) {
+    if (gateOn) {
         NSString *res = SCIInternalMenusForceApplyNow();
         ILOG("viewDidLoad: applied employee hooks: %s", res.UTF8String);
     }
