@@ -338,9 +338,21 @@ static void sciApplyRateToSelf(id view) {
 	%orig(speed);
 }
 
-- (void)videoPlayerDidInitialPlay:(id)player { %orig; sciApplyRateToSelf(self); }
-- (void)videoPlayerDidReadyToDisplay:(id)player { %orig; sciApplyRateToSelf(self); }
-- (void)videoPlayerDidFinishPrepare:(id)player { %orig; sciApplyRateToSelf(self); }
-- (void)videoPlayerDidUnpause:(id)player { %orig; sciApplyRateToSelf(self); }
+- (void)videoPlayerDidInitialPlay:(id)player {
+	%orig;
+	sciApplyRateToSelf(self);
+}
+- (void)videoPlayerDidReadyToDisplay:(id)player {
+	%orig;
+	sciApplyRateToSelf(self);
+}
+- (void)videoPlayerDidFinishPrepare:(id)player {
+	%orig;
+	sciApplyRateToSelf(self);
+}
+- (void)videoPlayerDidUnpause:(id)player {
+	%orig;
+	sciApplyRateToSelf(self);
+}
 
 %end

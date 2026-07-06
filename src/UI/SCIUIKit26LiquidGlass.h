@@ -22,6 +22,11 @@ void SCIUIKit26ApplyTableCellSelectionTint(UITableViewCell *cell, BOOL selected)
 void SCIStyleCollectionCellForGlass(UICollectionViewCell *cell);
 void SCIUIKit26ConfigureGlassView(UIView *view, CGFloat radius, BOOL interactive);
 void SCIUIKit26ConfigureButton(UIButton *button);
+/// Pop-up/menu accessory button. Uses the *native* iOS 26 glass button
+/// configuration so the control morphs cleanly into its UIMenu overlay. Does
+/// NOT inject a custom interactive UIGlassEffect (that breaks the morph and
+/// leaves a stray glass "blob"/void beside the menu).
+void SCIUIKit26ConfigureMenuButton(UIButton *button);
 void SCIUIKit26ConfigureSearchBar(UISearchBar *searchBar);
 void SCIUIKit26ConfigureSearchNavigationItem(UINavigationItem *navigationItem);
 void SCIUIKit26ConfigureSegmentedControl(UISegmentedControl *control);

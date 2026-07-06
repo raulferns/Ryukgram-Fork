@@ -480,6 +480,8 @@ NSDictionary *SCIDefaultsDictionary(void) {
 		@"sci_igplus_story_peek_active": @(NO),
 		@"sci_force_internal_settings_loggedout": @(NO),
 		@"sci_force_internal_settings_menu": @(NO),
+		@"sci_force_internal_settings_availability": @(NO),
+		@"sci_internal_settings_availability_value": @(2),
 		@"sci_force_mc_internal_use_all": @(NO),
 		@"sci_force_mc_internal_use_boolean": @(NO),
 		@"sci_force_mci_experiment_boolean": @(NO),

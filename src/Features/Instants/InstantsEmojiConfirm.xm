@@ -41,12 +41,26 @@ static NSString *sciButtonText(UIControl *btn) {
 %hook IGBouncyTextButton
 
 - (void)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
-    if (!sel_isEqual(action, @selector(didTapToReact:))) { %orig; return; }
-    if (![SCIUtils getBoolPref:@"instants_emoji_reaction_confirm"]) { %orig; return; }
-    if (!sciIsLikelyEmoji(sciButtonText((UIControl *)self))) { %orig; return; }
-    if (!sciResponderHasQuickSnap(self)) { %orig; return; }
+    if (!sel_isEqual(action, @selector(didTapToReact:))) {
+    	%orig;
+    	return;
+    }
+    if (![SCIUtils getBoolPref:@"instants_emoji_reaction_confirm"]) {
+    	%orig;
+    	return;
+    }
+    if (!sciIsLikelyEmoji(sciButtonText((UIControl *)self))) {
+    	%orig;
+    	return;
+    }
+    if (!sciResponderHasQuickSnap(self)) {
+    	%orig;
+    	return;
+    }
 
-    [SCIUtils showConfirmation:^{ %orig; }
+    [SCIUtils showConfirmation:^{
+    	%orig;
+    }
                          title:SCILocalized(@"Confirm Instants emoji reaction")];
 }
 

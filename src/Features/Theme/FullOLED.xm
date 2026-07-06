@@ -54,14 +54,20 @@ static const void *kSCIFlattenedOriginalKey = &kSCIFlattenedOriginalKey;
 %hook UIView
 
 - (void)setBackgroundColor:(UIColor *)color {
-	if (!color) { %orig; return; }
+	if (!color) {
+		%orig;
+		return;
+	}
 
 	// Only dynamic colors read light at set-time; static ones resolve to themselves,
 	// so skip the trait resolve on the hot path.
 	UIColor *resolved = SCIColorIsDynamic(color) ? [color resolvedColorWithTraitCollection:self.traitCollection] : color;
 
 	if ([SCITheme colorIsDarkSurface:resolved] && !SCIOLEDKeepGrey(self)) {
-		if ([SCITheme isTweakSurface:self]) { %orig; return; }
+		if ([SCITheme isTweakSurface:self]) {
+			%orig;
+			return;
+		}
 		objc_setAssociatedObject(self, kSCIFlattenedOriginalKey, color, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 		%orig([SCITheme backgroundColor]);
 		return;

@@ -61,41 +61,103 @@ static BOOL SCIIGDSAnyPrefEnabled(void) {
 %group SCIIGDSLauncherConfigGroup
 %hook IGDSLauncherConfig
 
-- (BOOL)canSupportLauncher { return SCIIGDSAll() ? YES : %orig; }
+- (BOOL)canSupportLauncher {
+	return SCIIGDSAll() ? YES : %orig;
+}
 
-- (BOOL)isLiquidGlassInAppNotificationEnabled { return SCIIGDSLG(@"sci_igds_lg_inappnotif") ? YES : %orig; }
-- (BOOL)isLiquidGlassToastEnabled { return SCIIGDSLG(@"sci_igds_lg_toast") ? YES : %orig; }
-- (BOOL)isLiquidGlassEaseInOutBlurEnabled { return SCIIGDSLG(@"sci_igds_lg_easeinout") ? YES : %orig; }
-- (BOOL)isContextMenuMigrationEnabled { return SCIIGDSLG(@"sci_igds_nav_ctxmenu") ? YES : %orig; }
+- (BOOL)isLiquidGlassInAppNotificationEnabled {
+	return SCIIGDSLG(@"sci_igds_lg_inappnotif") ? YES : %orig;
+}
+- (BOOL)isLiquidGlassToastEnabled {
+	return SCIIGDSLG(@"sci_igds_lg_toast") ? YES : %orig;
+}
+- (BOOL)isLiquidGlassEaseInOutBlurEnabled {
+	return SCIIGDSLG(@"sci_igds_lg_easeinout") ? YES : %orig;
+}
+- (BOOL)isContextMenuMigrationEnabled {
+	return SCIIGDSLG(@"sci_igds_nav_ctxmenu") ? YES : %orig;
+}
 
-- (BOOL)isPrismControlsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismDefaultTooltipEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismToastsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismAvatarRingEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismIndigoButtonEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismIndigoButtonM1DirectEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isIGBPrismEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismOverflowMenuEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismBottomSheetEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismCreationIconsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismMediaButtonsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismCommentsEmptyStateEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismAllUserAssetsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismFollowRelatedUserAssetsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)_isPrismSecondaryNonUserIconsEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismDividersCommentsUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismDividersEditReelEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismDividersNotificationsUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismDividersProfileUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
-- (BOOL)isPrismDividersShareSheetUpdateEnabled { return SCIIGDSPrism() ? YES : %orig; }
+- (BOOL)isPrismControlsEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismDefaultTooltipEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismToastsEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismAvatarRingEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismIndigoButtonEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismIndigoButtonM1DirectEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isIGBPrismEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismOverflowMenuEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismBottomSheetEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismCreationIconsEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismMediaButtonsEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismCommentsEmptyStateEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismAllUserAssetsEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismFollowRelatedUserAssetsEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)_isPrismSecondaryNonUserIconsEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismDividersCommentsUpdateEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismDividersEditReelEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismDividersNotificationsUpdateEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismDividersProfileUpdateEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
+- (BOOL)isPrismDividersShareSheetUpdateEnabled {
+	return SCIIGDSPrism() ? YES : %orig;
+}
 
-- (BOOL)isNativeBottomsheetForiPhoneEnabled { return SCIIGDSNav(@"sci_igds_nav_bottomsheet") ? YES : %orig; }
-- (BOOL)isNativeBottomsheetForiPhoneOnAllSurfacesEnabled { return SCIIGDSNav(@"sci_igds_nav_bottomsheet") ? YES : %orig; }
+- (BOOL)isNativeBottomsheetForiPhoneEnabled {
+	return SCIIGDSNav(@"sci_igds_nav_bottomsheet") ? YES : %orig;
+}
+- (BOOL)isNativeBottomsheetForiPhoneOnAllSurfacesEnabled {
+	return SCIIGDSNav(@"sci_igds_nav_bottomsheet") ? YES : %orig;
+}
 
-- (BOOL)isIGWordmark1aEnabled { return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1aEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1a"]) ? YES : %orig; }
-- (BOOL)isIGWordmark1aAltEnabled { return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1aAltEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1a_alt"]) ? YES : %orig; }
-- (BOOL)isIGWordmark1bEnabled { return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1bEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1b"]) ? YES : %orig; }
-- (BOOL)isIGWordmark1bAltEnabled { return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1bAltEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1b_alt"]) ? YES : %orig; }
+- (BOOL)isIGWordmark1aEnabled {
+	return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1aEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1a"]) ? YES : %orig;
+}
+- (BOOL)isIGWordmark1aAltEnabled {
+	return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1aAltEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1a_alt"]) ? YES : %orig;
+}
+- (BOOL)isIGWordmark1bEnabled {
+	return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1bEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1b"]) ? YES : %orig;
+}
+- (BOOL)isIGWordmark1bAltEnabled {
+	return (SCIIGDSBool(@"sci_igds_wordmark_isIGWordmark1bAltEnabled") || [SCIIGDSWordmarkVariant() isEqualToString:@"1b_alt"]) ? YES : %orig;
+}
 
 %end
 %end

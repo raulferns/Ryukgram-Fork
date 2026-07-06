@@ -58,10 +58,10 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 	if (cropped) CGImageRelease(cropped);
 	CGSize source = trimmed.size;
 	if (source.width <= 0.0 || source.height <= 0.0) return [trimmed imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-	// Match the visual size of the default wordmark instead of scaling every PNG
-	// to its own max height. This keeps the alternate marks from overpowering the row.
-	static const CGFloat kPreviewMaxWidth = 82.0;
-	static const CGFloat kPreviewMaxHeight = 22.0;
+	// Ícones grandes no picker: deixa a wordmark ocupar bem a linha, mantendo
+	// proporção. (Antes era 82x22, pequeno demais — queixa do usuário.)
+	static const CGFloat kPreviewMaxWidth = 132.0;
+	static const CGFloat kPreviewMaxHeight = 34.0;
 	CGFloat scale = MIN(kPreviewMaxWidth / source.width, kPreviewMaxHeight / source.height);
 	if (scale <= 0.0) scale = 1.0;
 	CGSize target = CGSizeMake(ceil(source.width * scale), ceil(source.height * scale));
@@ -89,7 +89,7 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 
 @implementation SCIOptionSheetVC
 
-- (CGFloat)rowHeightForWordmark { return 44.0; }
+- (CGFloat)rowHeightForWordmark { return 56.0; }
 
 - (CGFloat)estimatedHeightForOption:(NSDictionary *)opt {
 	if (self.wordmarkMode) return [self rowHeightForWordmark];
@@ -109,12 +109,12 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 }
 
 - (CGSize)preferredSheetSize {
-	CGFloat width = self.wordmarkMode ? 260.0 : 328.0;
+	CGFloat width = self.wordmarkMode ? 300.0 : 328.0;
 	CGFloat rows = 0.0;
 	for (NSDictionary *opt in self.options) rows += [self estimatedHeightForOption:opt];
 	if (rows <= 0.0) rows = 72.0;
 	CGFloat inset = self.wordmarkMode ? 12.0 : 16.0;
-	CGFloat maxHeight = MIN(UIScreen.mainScreen.bounds.size.height - 180.0, self.wordmarkMode ? 260.0 : 520.0);
+	CGFloat maxHeight = MIN(UIScreen.mainScreen.bounds.size.height - 180.0, self.wordmarkMode ? 380.0 : 520.0);
 	CGFloat height = MIN(MAX(self.wordmarkMode ? 160.0 : 128.0, rows + inset), maxHeight);
 	return CGSizeMake(width, height);
 }
@@ -125,6 +125,27 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 	self.view.opaque = NO;
 	SCIUIKit26ApplyContainerBackgroundToViewController(self);
 	self.preferredContentSize = [self preferredSheetSize];
+
+	// Glass explícito de fundo. O Instagram roda em modo de compatibilidade de
+	// design, então setPreferredContainerBackgroundStyle: (acima) é no-op no
+	// processo dele e o fundo sairia cinza. Instanciar UIGlassEffect direto
+	// renderiza Liquid Glass de verdade — mesmo caminho do title bubble.
+	UIVisualEffect *glass = SCIUIKit26GlassEffect(NO, NO, nil);
+	if (glass) {
+		self.effectView = [[UIVisualEffectView alloc] initWithEffect:glass];
+		self.effectView.translatesAutoresizingMaskIntoConstraints = NO;
+		self.effectView.clipsToBounds = YES;
+		self.effectView.layer.cornerRadius = 22.0;
+		if ([self.effectView.layer respondsToSelector:@selector(setCornerCurve:)])
+			self.effectView.layer.cornerCurve = kCACornerCurveContinuous;
+		[self.view addSubview:self.effectView];
+		[NSLayoutConstraint activateConstraints:@[
+			[self.effectView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+			[self.effectView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+			[self.effectView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+			[self.effectView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+		]];
+	}
 
 	self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
 	self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -187,8 +208,8 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 				[preview.leadingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.leadingAnchor],
 				[preview.trailingAnchor constraintLessThanOrEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor],
 				[preview.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-				[preview.widthAnchor constraintEqualToConstant:82.0],
-				[preview.heightAnchor constraintEqualToConstant:22.0],
+				[preview.widthAnchor constraintEqualToConstant:132.0],
+				[preview.heightAnchor constraintEqualToConstant:34.0],
 			]];
 		}
 		cell.contentConfiguration = nil;
@@ -286,8 +307,13 @@ static UIImage *SCIOptionSheetWordmarkPreviewImage(UIImage *image) {
 }
 
 + (BOOL)optionsAreWordmark:(NSArray<NSDictionary *> *)options fallbackKey:(NSString *)fallbackKey {
-	(void)options;
-	(void)fallbackKey;
+	if ([fallbackKey isEqualToString:@"sci_ig_wordmark_variant"]) return YES;
+	for (NSDictionary *opt in options) {
+		NSString *wm = [opt[@"wordmarkImageName"] isKindOfClass:NSString.class] ? opt[@"wordmarkImageName"] : nil;
+		if (wm.length) return YES;
+		NSString *k = [opt[@"defaultsKey"] isKindOfClass:NSString.class] ? opt[@"defaultsKey"] : nil;
+		if ([k isEqualToString:@"sci_ig_wordmark_variant"]) return YES;
+	}
 	return NO;
 }
 

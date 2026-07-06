@@ -18,36 +18,50 @@ static BOOL sciDevAnyGateEnabled(void) {
 %group SCIDevInternalObjCGatesGroup
 
 %hook IGAdPlatformLogger_objc
-- (BOOL)isEmployee { return sciDevGate(@"sci_force_ig_is_employee") ? YES : %orig; }
+- (BOOL)isEmployee {
+	return sciDevGate(@"sci_force_ig_is_employee") ? YES : %orig;
+}
 %end
 
 %hook IGFeaturedUserInfo
-- (BOOL)shouldShowInternalBadge { return sciDevGate(@"sci_force_ig_featured_internal_badge") ? YES : %orig; }
+- (BOOL)shouldShowInternalBadge {
+	return sciDevGate(@"sci_force_ig_featured_internal_badge") ? YES : %orig;
+}
 %end
 
 %hook IGDirectInboxThreadCellViewModel
-- (BOOL)shouldShowInternalBadge { return sciDevGate(@"sci_force_ig_inbox_internal_badge") ? YES : %orig; }
+- (BOOL)shouldShowInternalBadge {
+	return sciDevGate(@"sci_force_ig_inbox_internal_badge") ? YES : %orig;
+}
 %end
 
 %hook IGCreationActionBarButton
-- (BOOL)shouldShowInternalLabel { return sciDevGate(@"sci_force_ig_creation_internal_label") ? YES : %orig; }
+- (BOOL)shouldShowInternalLabel {
+	return sciDevGate(@"sci_force_ig_creation_internal_label") ? YES : %orig;
+}
 %end
 
 %hook IGLaunchHorizonViewController
-- (BOOL)shouldShowDebugInfo { return sciDevGate(@"sci_force_ig_launch_debug_info") ? YES : %orig; }
+- (BOOL)shouldShowDebugInfo {
+	return sciDevGate(@"sci_force_ig_launch_debug_info") ? YES : %orig;
+}
 %end
 
 %end
 
 %group SCIDevLaunchV2Group
 %hook LaunchHorizonViewControllerV2
-- (BOOL)shouldShowDebugInfo { return sciDevGate(@"sci_force_ig_launch_debug_info_v2") ? YES : %orig; }
+- (BOOL)shouldShowDebugInfo {
+	return sciDevGate(@"sci_force_ig_launch_debug_info_v2") ? YES : %orig;
+}
 %end
 %end
 
 %group SCIStoryDebugUnderlayGroup
 %hook IGStoryOpaqueDebugUnderlayViewFactory
-+ (BOOL)shouldShowDebugUnderlay { return sciDevGate(@"sci_force_ig_story_debug_underlay") ? YES : %orig; }
++ (BOOL)shouldShowDebugUnderlay {
+	return sciDevGate(@"sci_force_ig_story_debug_underlay") ? YES : %orig;
+}
 %end
 %end
 

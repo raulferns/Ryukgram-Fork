@@ -183,7 +183,9 @@ static void sciInjectDependencies(id vc) {
     sciApplyLiquidGlass(isOn);
 
     // Tentar %orig — pode funcionar agora que userSession foi injetado
-    @try { %orig(sender); } @catch (__unused id e) {}
+    @try {
+        %orig(sender);
+    } @catch (__unused id e) {}
 }
 
 // tableView:didSelectRowAtIndexPath: — log para investigar o que navigationState precisa.

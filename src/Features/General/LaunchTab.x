@@ -80,13 +80,37 @@ static id sciCoerceSurface(id ctrl, id surface) {
         [self setSelectedTabBarSurface:desired animated:NO animateIndicator:NO];
 }
 
-- (void)_timelineButtonPressed      { sciReleaseLaunchTabLock(self); %orig; }
-- (void)_exploreButtonPressed       { sciReleaseLaunchTabLock(self); %orig; }
-- (void)_discoverVideoButtonPressed { sciReleaseLaunchTabLock(self); %orig; }
-- (void)_directInboxButtonPressed   { sciReleaseLaunchTabLock(self); %orig; }
-- (void)_profileButtonPressed       { sciReleaseLaunchTabLock(self); %orig; }
-- (void)_cameraButtonPressed        { sciReleaseLaunchTabLock(self); %orig; }
-- (void)_newsButtonPressed          { sciReleaseLaunchTabLock(self); %orig; }
-- (void)_streamsButtonPressed       { sciReleaseLaunchTabLock(self); %orig; }
+- (void)_timelineButtonPressed      {
+	sciReleaseLaunchTabLock(self);
+	%orig;
+}
+- (void)_exploreButtonPressed       {
+	sciReleaseLaunchTabLock(self);
+	%orig;
+}
+- (void)_discoverVideoButtonPressed {
+	sciReleaseLaunchTabLock(self);
+	%orig;
+}
+- (void)_directInboxButtonPressed   {
+	sciReleaseLaunchTabLock(self);
+	%orig;
+}
+- (void)_profileButtonPressed       {
+	sciReleaseLaunchTabLock(self);
+	%orig;
+}
+- (void)_cameraButtonPressed        {
+	sciReleaseLaunchTabLock(self);
+	%orig;
+}
+- (void)_newsButtonPressed          {
+	sciReleaseLaunchTabLock(self);
+	%orig;
+}
+- (void)_streamsButtonPressed       {
+	sciReleaseLaunchTabLock(self);
+	%orig;
+}
 
 %end

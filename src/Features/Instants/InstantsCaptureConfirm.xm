@@ -8,8 +8,13 @@
 %hook _TtC34IGQuickSnapCameraControlController28IGQuickSnapCameraControlView
 
 - (void)captureButtonDidReleaseBeforeExpandingFinished {
-    if (![SCIUtils getBoolPref:@"instants_capture_confirm"]) { %orig; return; }
-    [SCIUtils showConfirmation:^{ %orig; }
+    if (![SCIUtils getBoolPref:@"instants_capture_confirm"]) {
+    	%orig;
+    	return;
+    }
+    [SCIUtils showConfirmation:^{
+    	%orig;
+    }
                          title:SCILocalized(@"Confirm Instants capture")];
 }
 
@@ -52,17 +57,31 @@ extern "C" void SCIDriveInstantAdvanceForStack(UIView *stack, CGPoint loc) {
 
 - (void)didPressWithGestureRecognizer:(UIGestureRecognizer *)gr {
     // our synthetic re-entry (post-confirm / auto-advance) — run IG's advance as-is
-    if ([gr isKindOfClass:[SCIInstantAdvanceGR class]]) { %orig; return; }
+    if ([gr isKindOfClass:[SCIInstantAdvanceGR class]]) {
+    	%orig;
+    	return;
+    }
 
-    if (![SCIUtils getBoolPref:@"instants_advance_confirm"]) { %orig; return; }
-    if (gr.state != UIGestureRecognizerStateEnded) { %orig; return; }  // Began records pressStartLocation
+    if (![SCIUtils getBoolPref:@"instants_advance_confirm"]) {
+    	%orig;
+    	return;
+    }
+    if (gr.state != UIGestureRecognizerStateEnded) {
+    	%orig;
+    	return;
+    }
+    // Began records pressStartLocation
 
     UIView *stack = gr.view;
     Ivar psl = class_getInstanceVariable(object_getClass(self), "pressStartLocation");
     CGPoint start = psl ? *(CGPoint *)((char *)(__bridge void *)self + ivar_getOffset(psl)) : CGPointZero;
     CGPoint loc = [gr locationInView:stack];
     CGFloat dx = loc.x - start.x, dy = loc.y - start.y;
-    if ((dx * dx + dy * dy) > (12.0 * 12.0)) { %orig; return; }  // travelled => swipe, pass through
+    if ((dx * dx + dy * dy) > (12.0 * 12.0)) {
+    	%orig;
+    	return;
+    }
+    // travelled => swipe, pass through
 
     [SCIUtils showConfirmation:^{
         SCIDriveInstantAdvanceForStack(stack, loc);

@@ -153,7 +153,10 @@ useShimmerLoadingWhenNoStoriesTray:(BOOL)a25 {
     BOOL noRefresh = sciDisableHomeRefresh();
     BOOL noScroll = sciDisableHomeScroll();
 
-    if (!noRefresh && !noScroll) { %orig; return; }
+    if (!noRefresh && !noScroll) {
+    	%orig;
+    	return;
+    }
 
     UIViewController *selected = nil;
     if ([self respondsToSelector:@selector(selectedViewController)])
@@ -166,7 +169,10 @@ useShimmerLoadingWhenNoStoriesTray:(BOOL)a25 {
         onFeedTab = [NSStringFromClass([top class]) containsString:@"MainFeed"];
     }
 
-    if (!onFeedTab) { %orig; return; }
+    if (!onFeedTab) {
+    	%orig;
+    	return;
+    }
     if (noScroll) return;
 
     // noRefresh only — scroll to top without refreshing.
@@ -189,7 +195,10 @@ useShimmerLoadingWhenNoStoriesTray:(BOOL)a25 {
 // MARK: - Reels tab refresh
 
 - (void)_discoverVideoButtonPressed {
-    if (!sciDisableReelsRefresh()) { %orig; return; }
+    if (!sciDisableReelsRefresh()) {
+    	%orig;
+    	return;
+    }
 
     UIViewController *selected = nil;
     if ([self respondsToSelector:@selector(selectedViewController)])
@@ -204,7 +213,10 @@ useShimmerLoadingWhenNoStoriesTray:(BOOL)a25 {
                   || [cls containsString:@"DiscoverVideo"];
     }
 
-    if (!onReelsTab) { %orig; return; }
+    if (!onReelsTab) {
+    	%orig;
+    	return;
+    }
 }
 
 %end

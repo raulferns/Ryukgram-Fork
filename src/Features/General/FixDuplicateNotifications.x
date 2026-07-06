@@ -8,7 +8,10 @@
 
 %hook UNUserNotificationCenter
 - (void)addNotificationRequest:(UNNotificationRequest *)request withCompletionHandler:(void (^)(NSError *error))completionHandler {
-	if (![SCIUtils getBoolPref:@"sci_fix_duplicate_notifications"]) { %orig; return; }
+	if (![SCIUtils getBoolPref:@"sci_fix_duplicate_notifications"]) {
+		%orig;
+		return;
+	}
 
 	NSDictionary *userInfo = request.content.userInfo;
 	BOOL isPushDerived = [userInfo isKindOfClass:[NSDictionary class]] && userInfo[@"gid"] != nil;

@@ -351,8 +351,14 @@ static NSInteger sciCarouselPageIndexForView(UIView *view) {
 %hook IGProfilePhotoCoinFlipUI.IGProfilePhotoCoinFlipView
 
 - (void)viewLongPressedWithGesture:(UILongPressGestureRecognizer *)gesture {
-    if (![SCIUtils getBoolPref:@"zoom_profile_photo"]) { %orig; return; }
-    if (gesture.state != UIGestureRecognizerStateBegan) { %orig; return; }
+    if (![SCIUtils getBoolPref:@"zoom_profile_photo"]) {
+    	%orig;
+    	return;
+    }
+    if (gesture.state != UIGestureRecognizerStateBegan) {
+    	%orig;
+    	return;
+    }
 
     UIView *source = gesture.view;
     id user = [SCIProfileHelpers userForView:source];

@@ -57,6 +57,8 @@ static BOOL sciTapIsReactionSticker(id target) {
 
     NSString *title = highlight ? SCILocalized(@"Confirm sticker interaction (highlights)")
                                 : SCILocalized(@"Confirm sticker interaction (stories)");
-    [SCIUtils showConfirmation:^(void) { %orig; } title:title];
+    [SCIUtils showConfirmation:^(void) {
+    	%orig;
+    } title:title];
 }
 %end

@@ -717,17 +717,19 @@ static UIImage *SCISettingsScaledTemplateBundleImage(NSString *name, CGSize maxS
 			b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
 			UIMenu *resolvedMenu = [row menuForButton:b];
 			BOOL isWordmarkMenu = SCIMenuContainsDefaultsKey(resolvedMenu, @"sci_ig_wordmark_variant");
-			SCIUIKit26ConfigureButton(b);
+			// SCIUIKit26ConfigureMenuButton usa glassButtonConfiguration NATIVO puro,
+			// sem UIGlassEffect custom por cima (era o custom que virava "blob redondo"
+			// fora do lugar). Botao glass nativo = morphing com glass de verdade quando
+			// o menu abre (WWDC25 "Build a UIKit app with the new design").
+			SCIUIKit26ConfigureMenuButton(b);
 			UIButtonConfiguration *bc = b.configuration ?: UIButtonConfiguration.plainButtonConfiguration;
 			bc.contentInsets = NSDirectionalEdgeInsetsMake(6.0, 10.0, 6.0, 10.0);
 			bc.titleLineBreakMode = NSLineBreakByTruncatingTail;
 			if (isWordmarkMenu) {
 				NSString *variant = [NSUserDefaults.standardUserDefaults stringForKey:@"sci_ig_wordmark_variant"] ?: @"off";
-				// Preview limpo: SEM glass (o glass interativo virava um "blob redondo"
-				// fora do lugar). Só a wordmark, compacta, no slot direito.
+				// Glass nativo mantido (nao zera mais visualEffect/backgroundColor --
+				// isso apagava o proprio glass que o glassButtonConfiguration da).
 				bc.title = nil;
-				bc.background.visualEffect = nil;
-				bc.background.backgroundColor = UIColor.clearColor;
 				bc.contentInsets = NSDirectionalEdgeInsetsMake(2.0, 8.0, 2.0, 8.0);
 				bc.image = SCISettingsScaledTemplateBundleImage(SCISettingsWordmarkImageNameForValue(variant), CGSizeMake(96.0, 22.0));
 				bc.imagePadding = 0.0;
@@ -737,11 +739,15 @@ static UIImage *SCISettingsScaledTemplateBundleImage(NSString *name, CGSize maxS
 				bc.title = selectedTitle.length ? selectedTitle : SCILocalized(@"Default");
 				bc.image = nil;
 				bc.indicator = UIButtonConfigurationIndicatorPopup;
-				if (@available(iOS 15.0, *)) b.changesSelectionAsPrimaryAction = YES;
 			}
 			b.configuration = bc;
+			// Menu NATIVO: UIButton.menu + showsMenuAsPrimaryAction da o morphing
+			// automatico do iOS 26, selecao via UIMenuOptionsSingleSelection +
+			// UIAction.state (ja montados em menuForButton), e separadores nativos
+			// via inline sections. Nao usar popover/painel custom para menu simples.
 			b.menu = resolvedMenu;
 			b.showsMenuAsPrimaryAction = YES;
+			if (@available(iOS 15.0, *)) b.changesSelectionAsPrimaryAction = NO;
 			[b sizeToFit];
 			if (isWordmarkMenu) {
 				// trava a altura no padrão de accessory pra a célula não estourar

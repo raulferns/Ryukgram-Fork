@@ -45,34 +45,27 @@ static BOOL ei_ig_is_employee_or_test_user(void) { return YES; }
 // ── (2) Getters ObjC conhecidos -> YES (resolvidos por nome; safe se ausentes) ──
 %group SCIEmployeeObjCGroup
 %hook IGFacebookUserInfo
-- (BOOL)isEmployee { return EIOn() ? YES : %orig; }
+- (BOOL)isEmployee {
+	return EIOn() ? YES : %orig;
+}
 %end
 %hook IGAdPlatformLogger_objc
-- (BOOL)isEmployee { return EIOn() ? YES : %orig; }
+- (BOOL)isEmployee {
+	return EIOn() ? YES : %orig;
+}
 %end
 %end
 
 // ── (3) Getter Swift @objc -> YES (classe mangled, alias em runtime) ──
 %group SCIEmployeeSwiftGroup
 %hook IGAdPlatformLogger_swift
-- (BOOL)isEmployee { return EIOn() ? YES : %orig; }
+- (BOOL)isEmployee {
+	return EIOn() ? YES : %orig;
+}
 %end
 %end
 
 // ── (4) Bug reporter menu init: força a entrada Internal Settings ──
-static id (*orig_bugMenuInit)(id, SEL, id, id, id, id, id, id, long, long, BOOL, BOOL, BOOL) = NULL;
-static id ei_bugMenuInit(id self, SEL _cmd,
-        id deviceSession, id userSession, id reliabilityLogging, id navChain,
-        id endpoint, id entryPoint, long style, long status,
-        BOOL showInternal, BOOL showLoggedOut, BOOL showShake) {
-    if (EIOn()) { showInternal = YES; showShake = YES; showLoggedOut = YES; }
-    return orig_bugMenuInit
-        ? orig_bugMenuInit(self, _cmd, deviceSession, userSession, reliabilityLogging,
-                           navChain, endpoint, entryPoint, style, status,
-                           showInternal, showLoggedOut, showShake)
-        : self;
-}
-
 %ctor {
     @autoreleasepool {
         if (!EIOn()) return;   // %ctor barato: 1 pref read
@@ -91,15 +84,7 @@ static id ei_bugMenuInit(id self, SEL _cmd,
         Class swCls = objc_getClass("_TtC28IGAdInsertionLoggingKitSwift24IGAdPlatformLogger_swift");
         if (swCls) %init(SCIEmployeeSwiftGroup, IGAdPlatformLogger_swift = swCls);
 
-        // (4) Bug reporter init
-        Class bug = objc_getClass("_TtC17IGBugReporterMenu29IGBugReportMenuViewController");
-        if (bug) {
-            SEL sel = NSSelectorFromString(@"initWithDeviceSession:userSession:reliabilityLogging:navChain:endpoint:entryPoint:style:internalSettingsAvailabilityStatus:showInternalSettings:showLoggedOutInternalSettings:showShakeToReportPreferenceToggle:");
-            if (class_getInstanceMethod(bug, sel))
-                MSHookMessageEx(bug, sel, (IMP)ei_bugMenuInit, (IMP *)&orig_bugMenuInit);
-        }
-
         BOOL haveFB = objc_getClass("IGFacebookUserInfo") != nil;
-        EILOG("installed rc=%d fbUserInfo=%d swift=%d bug=%d", rc, haveFB, swCls!=nil, bug!=nil);
+        EILOG("installed rc=%d fbUserInfo=%d swift=%d", rc, haveFB, swCls!=nil);
     }
 }

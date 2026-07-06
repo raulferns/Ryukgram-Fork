@@ -8,7 +8,10 @@
 
 %hook CXProvider
 - (void)reportNewIncomingCallWithUUID:(NSUUID *)uuid update:(CXCallUpdate *)update completion:(void (^)(NSError *))completion {
-    if (![SCIUtils getBoolPref:@"sci_silence_calls"]) { %orig; return; }
+    if (![SCIUtils getBoolPref:@"sci_silence_calls"]) {
+    	%orig;
+    	return;
+    }
     // Report "succeeded" so IG won't retry; call never reaches CallKit = no ring/UI.
     if (completion) completion(nil);
 }

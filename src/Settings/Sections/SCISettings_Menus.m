@@ -3,15 +3,23 @@
 // Wordmark thumbnails ship in the tweak bundle (BundleAssets). Template-rendered
 // so they tint with the menu. Returns nil if the asset is missing → caller falls
 // back to an SF Symbol.
-// Corta o transparente e normaliza num canvas consistente em pontos, pra a
-// wordmark PREENCHER o slot de ícone do UIMenu (sem isso fica minúscula porque o
-// PNG vem com muito padding transparente). Template -> tinge com o menu.
-static UIImage *SCIWordmarkMenuTrimScale(UIImage *img, CGSize box) {
-    if (!img) return nil;
+// Canvas fixo 82x22pt -- convencao documentada (01-liquidglass-uikit-ios26.md
+// secao 5, RGWordmarkCanvasImage). Todo wordmark PRECISA sair com o MESMO
+// UIImage.size final (checklist secao 12). Passos: (1) alpha-trim -- cada PNG
+// de origem tem padding transparente diferente, e ISSO -- nao o glyph em si --
+// causava "1a grande, ultima pequena"; (2) escala por ALTURA FIXA, nao pelo
+// MIN() ingenuo das duas proporcoes (que ainda teria o mesmo bug se os
+// glyphs, ja trimados, tiverem proporcoes largura:altura diferentes); (3)
+// desenha centralizado no canvas fixo.
+static const CGFloat kSCIWordmarkCanvasW = 82.0;
+static const CGFloat kSCIWordmarkCanvasH = 22.0;
+
+static UIImage *SCIWordmarkMenuTrim(UIImage *img) {
+    if (!img) return img;
     CGImageRef cg = img.CGImage;
-    if (!cg) return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    if (!cg) return img;
     size_t w = CGImageGetWidth(cg), h = CGImageGetHeight(cg);
-    if (!w || !h) return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    if (!w || !h) return img;
     CGColorSpaceRef csp = CGColorSpaceCreateDeviceRGB();
     uint8_t *buf = (uint8_t *)calloc(w * h * 4, 1);
     UIImage *trimmed = img;
@@ -37,26 +45,36 @@ static UIImage *SCIWordmarkMenuTrimScale(UIImage *img, CGSize box) {
     }
     if (buf) free(buf);
     if (csp) CGColorSpaceRelease(csp);
+    return trimmed;
+}
+
+static UIImage *SCIWordmarkMenuCanvasImage(UIImage *source) {
+    if (!source) return nil;
+    UIImage *trimmed = SCIWordmarkMenuTrim(source);
+    CGSize canvas = CGSizeMake(kSCIWordmarkCanvasW, kSCIWordmarkCanvasH);
     CGSize sz = trimmed.size;
     if (sz.width <= 0 || sz.height <= 0) return [trimmed imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-    CGFloat r = MIN(box.width / sz.width, box.height / sz.height);
+    CGFloat r = canvas.height / sz.height;
+    CGFloat rw = canvas.width / sz.width;
+    if (rw < r) r = rw;
     if (r <= 0) r = 1.0;
-    CGSize target = CGSizeMake(ceil(sz.width * r), ceil(sz.height * r));
+    CGSize target = CGSizeMake(floor(sz.width * r), floor(sz.height * r));
+    CGRect rect = CGRectMake((canvas.width - target.width) / 2.0,
+                             (canvas.height - target.height) / 2.0,
+                             target.width, target.height);
     UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
     fmt.opaque = NO;
-    UIGraphicsImageRenderer *rnd = [[UIGraphicsImageRenderer alloc] initWithSize:target format:fmt];
-    UIImage *out = [rnd imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull c) {
-        [trimmed drawInRect:CGRectMake(0, 0, target.width, target.height)];
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:canvas format:fmt];
+    UIImage *img = [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        [trimmed drawInRect:rect];
     }];
-    return [out imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    return [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 }
 
 static UIImage *SCIWordmarkMenuImage(NSString *name) {
     NSBundle *bundle = SCILocalizationBundle();
     UIImage *img = bundle ? [UIImage imageNamed:name inBundle:bundle compatibleWithTraitCollection:nil] : nil;
-    // Canvas alvo: alto o suficiente pra preencher o slot do menu (UIMenu limita a
-    // altura ~22pt; cortar o padding faz a wordmark ocupar o slot inteiro).
-    return img ? SCIWordmarkMenuTrimScale(img, CGSizeMake(132.0, 30.0)) : nil;
+    return img ? SCIWordmarkMenuCanvasImage(img) : nil;
 }
 
 @implementation SCITweakSettings (Section_Menus)

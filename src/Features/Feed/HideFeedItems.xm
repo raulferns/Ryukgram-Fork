@@ -126,7 +126,8 @@ static NSArray *removeShortFeedSpinner(NSArray *list) {
 
 %hook IGMainFeedListAdapterDataSource
 - (NSArray *)objectsForListAdapter:(id)arg1 {
-	return removeShortFeedSpinner(removeItemsInList(%orig, YES, sciHideAds(@"feed")));
+	NSArray *sciOrig = %orig;
+	return removeShortFeedSpinner(removeItemsInList(sciOrig, YES, sciHideAds(@"feed")));
 }
 %end
 
@@ -187,11 +188,17 @@ static NSArray *sciSundialFilterAndLimit(id dataSource, NSArray *list) {
 }
 
 %hook IGSundialFeedDataSource
-- (NSArray *)objectsForListAdapter:(id)arg1 {return sciSundialFilterAndLimit(self, %orig);}
+- (NSArray *)objectsForListAdapter:(id)arg1 {
+	NSArray *sciOrig = %orig;
+	return sciSundialFilterAndLimit(self, sciOrig);
+}
 %end
 
 %hook _TtC13IGSundialFeed23IGSundialFeedDataSource
-- (NSArray *)objectsForListAdapter:(id)arg1 {return sciSundialFilterAndLimit(self, %orig);}
+- (NSArray *)objectsForListAdapter:(id)arg1 {
+	NSArray *sciOrig = %orig;
+	return sciSundialFilterAndLimit(self, sciOrig);
+}
 %end
 
 %hook IGContextualFeedViewController

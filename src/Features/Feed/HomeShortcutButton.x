@@ -166,7 +166,8 @@ static NSArray *sciButtonsByAddingShortcut(UIView *header, NSArray *buttons) {
 
 - (NSArray *)_visibleRightButtons {
 	[sciHomeShortcutHeaders() addObject:(UIView *)self];
-	return sciButtonsByAddingShortcut((UIView *)self, %orig);
+	NSArray *sciOrig = %orig;
+	return sciButtonsByAddingShortcut((UIView *)self, sciOrig);
 }
 
 %new - (void)sciHomeShortcutFireSingle:(UIButton *)sender {

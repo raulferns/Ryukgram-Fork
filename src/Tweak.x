@@ -210,16 +210,29 @@ static void sciInstallProgressiveBlurHooks(void) {
 
 %group SCIScreenshotBlockGroup
 %hook IGStoryViewerContainerView
-- (void)setShouldBlockScreenshot:(BOOL)arg1 viewModel:(id)arg2 {VOID_HANDLESCREENSHOT(%orig);}
+- (void)setShouldBlockScreenshot:(BOOL)arg1 viewModel:(id)arg2 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
 %end
 %hook IGDirectVisualMessageViewerSession
-- (id)visualMessageViewerController:(id)arg1 didDetectScreenshotForVisualMessage:(id)arg2 atIndex:(NSInteger)arg3 {NONVOID_HANDLESCREENSHOT(%orig);}
+- (id)visualMessageViewerController:(id)arg1 didDetectScreenshotForVisualMessage:(id)arg2 atIndex:(NSInteger)arg3 {
+	if (SCI_SCREENSHOT_BLOCKED) return nil;
+	return %orig;
+}
 %end
 %hook IGDirectVisualMessageReplayService
-- (id)visualMessageViewerController:(id)arg1 didDetectScreenshotForVisualMessage:(id)arg2 atIndex:(NSInteger)arg3 {NONVOID_HANDLESCREENSHOT(%orig);}
+- (id)visualMessageViewerController:(id)arg1 didDetectScreenshotForVisualMessage:(id)arg2 atIndex:(NSInteger)arg3 {
+	if (SCI_SCREENSHOT_BLOCKED) return nil;
+	return %orig;
+}
 %end
 %hook IGDirectVisualMessageReportService
-- (id)visualMessageViewerController:(id)arg1 didDetectScreenshotForVisualMessage:(id)arg2 atIndex:(NSInteger)arg3 {NONVOID_HANDLESCREENSHOT(%orig);}
+- (id)visualMessageViewerController:(id)arg1 didDetectScreenshotForVisualMessage:(id)arg2 atIndex:(NSInteger)arg3 {
+	if (SCI_SCREENSHOT_BLOCKED) return nil;
+	return %orig;
+}
 %end
 
 %hook IGDirectVisualMessageScreenshotSafetyLogger
@@ -231,32 +244,75 @@ static void sciInstallProgressiveBlurHooks(void) {
 %end
 
 %hook IGScreenshotObserver
-- (id)initForController:(id)arg1 {NONVOID_HANDLESCREENSHOT(%orig);}
+- (id)initForController:(id)arg1 {
+	if (SCI_SCREENSHOT_BLOCKED) return nil;
+	return %orig;
+}
 %end
 
 %hook IGScreenshotObserverDelegate
-- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {VOID_HANDLESCREENSHOT(%orig);}
-- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {VOID_HANDLESCREENSHOT(%orig);}
+- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
+- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
 %end
 
 %hook IGDirectMediaViewerViewController
-- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {VOID_HANDLESCREENSHOT(%orig);}
-- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {VOID_HANDLESCREENSHOT(%orig);}
+- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
+- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
 %end
 
 %hook IGStoryViewerViewController
-- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {VOID_HANDLESCREENSHOT(%orig);}
-- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {VOID_HANDLESCREENSHOT(%orig);}
+- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
+- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
 %end
 
 %hook IGSundialFeedViewController
-- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {VOID_HANDLESCREENSHOT(%orig);}
-- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {VOID_HANDLESCREENSHOT(%orig);}
+- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
+- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
 %end
 
 %hook IGDirectVisualMessageViewerController
-- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {VOID_HANDLESCREENSHOT(%orig);}
-- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {VOID_HANDLESCREENSHOT(%orig);}
+- (void)screenshotObserverDidSeeScreenshotTaken:(id)arg1 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
+- (void)screenshotObserverDidSeeActiveScreenCapture:(id)arg1 event:(NSInteger)arg2 {
+	if (!SCI_SCREENSHOT_BLOCKED) {
+		%orig;
+	}
+}
 %end
 %end
 
@@ -421,12 +477,16 @@ static void sciInstallProgressiveBlurHooks(void) {
 
 - (void)UFIButtonBarDidTapOnLike:(id)arg1 {
 	if (!SCI_PREF(@"like_confirm")) return %orig;
-	[SCIUtils showConfirmation:^{ %orig; } title:SCILocalized(@"Confirm like: Posts")];
+	[SCIUtils showConfirmation:^{
+		%orig;
+	} title:SCILocalized(@"Confirm like: Posts")];
 }
 
 - (void)UFIButtonBarDidTapOnRepost:(id)arg1 {
 	if (!SCI_PREF(@"repost_confirm")) return %orig;
-	[SCIUtils showConfirmation:^{ %orig; } title:SCILocalized(@"Confirm repost")];
+	[SCIUtils showConfirmation:^{
+		%orig;
+	} title:SCILocalized(@"Confirm repost")];
 }
 
 - (void)UFIButtonBarDidLongPressOnRepost:(id)arg1 {
@@ -453,7 +513,9 @@ static void sciInstallProgressiveBlurHooks(void) {
 %hook IGSundialViewerVerticalUFI
 - (void)_didTapLikeButton:(id)arg1 {
 	if (!SCI_PREF(@"like_confirm_reels")) return %orig;
-	[SCIUtils showConfirmation:^{ %orig; } title:SCILocalized(@"Confirm like: Reels")];
+	[SCIUtils showConfirmation:^{
+		%orig;
+	} title:SCILocalized(@"Confirm like: Reels")];
 }
 - (void)_didLongPressLikeButton:(id)arg1 {
 	if (!SCI_PREF(@"like_confirm_reels")) return %orig;
@@ -461,7 +523,9 @@ static void sciInstallProgressiveBlurHooks(void) {
 - (void)_didTapRepostButton {
 	if (SCI_PREF(@"hide_reels_repost")) return;
 	if (!SCI_PREF(@"repost_confirm")) return %orig;
-	[SCIUtils showConfirmation:^{ %orig; } title:SCILocalized(@"Confirm repost")];
+	[SCIUtils showConfirmation:^{
+		%orig;
+	} title:SCILocalized(@"Confirm repost")];
 }
 
 - (void)_didLongPressRepostButton:(id)arg1 {

@@ -280,7 +280,10 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 		NSString *value = [props[@"value"] isKindOfClass:NSString.class] ? props[@"value"] : nil;
 		BOOL isWordmark = SCIIsWordmarkMenuCommand(props);
 		NSString *displayTitle = isWordmark ? SCIWordmarkDisplayTitleForValue(value, child.title) : child.title;
-		NSString *menuTitle = isWordmark ? @"" : (child.title ?: @"");
+		// Icon-only wordmark rows: a single space (not @"") keeps a stable text
+		// baseline so the selected row still lays out its image next to the
+		// checkmark instead of collapsing it away.
+		NSString *menuTitle = isWordmark ? @" " : (child.title ?: @"");
 
 		UICommand *command = [UICommand commandWithTitle:menuTitle
 										   image:child.image
@@ -311,9 +314,26 @@ static NSString *SCIWordmarkDisplayTitleForValue(NSString *value, NSString *fall
 		[children addObject:command];
 	}
 
+	// iOS 26 morphing menus draw native separators between *inline sections*, not
+	// between flat actions. Wrap each leaf command in its own single-item inline
+	// group so the system renders a divider between every option (no manual
+	// drawing). Nested submenus are already grouped, so we keep them as-is.
+	NSMutableArray<UIMenuElement *> *sectioned = [NSMutableArray arrayWithCapacity:children.count];
+	for (UIMenuElement *element in children) {
+		if ([element isKindOfClass:UICommand.class]) {
+			[sectioned addObject:[UIMenu menuWithTitle:@""
+												 image:nil
+											identifier:nil
+											   options:UIMenuOptionsDisplayInline
+											  children:@[element]]];
+		} else {
+			[sectioned addObject:element];
+		}
+	}
+
 	UIMenuOptions options = submenu.options;
 	if (@available(iOS 15.0, *)) options |= UIMenuOptionsSingleSelection;
-	return [UIMenu menuWithTitle:submenu.title image:nil identifier:nil options:options children:children];
+	return [UIMenu menuWithTitle:submenu.title image:nil identifier:nil options:options children:sectioned];
 }
 
 @end

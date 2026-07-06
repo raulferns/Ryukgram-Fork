@@ -163,6 +163,7 @@ static void SCIClearCrashMarker(void) {
         @"sci_force_mobileconfig_force_update",
         @"sci_force_internal_settings_menu",
         @"sci_force_internal_settings_loggedout",
+        @"sci_force_internal_settings_availability",
         @"sci_force_igplus_all",
         @"sci_igplus_eligibility",
         @"sci_igplus_has_access",
