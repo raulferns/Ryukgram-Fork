@@ -35,16 +35,6 @@ static BOOL SCIPatchIvarToBool(id obj, const char *ivarName, BOOL value) {
     return YES;
 }
 
-static BOOL SCICellContainsText(UIView *view, NSString *text) {
-    if ([view isKindOfClass:NSClassFromString(@"UILabel")]) {
-        UILabel *lbl = (UILabel *)view;
-        if ([lbl.text containsString:text]) return YES;
-    }
-    for (UIView *sub in view.subviews) {
-        if (SCICellContainsText(sub, text)) return YES;
-    }
-    return NO;
-}
 
 %group SCIInternalMenuHooks
 
@@ -164,8 +154,6 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
         ILOG("viewDidLoad: applied employee hooks: %s", res.UTF8String);
     }
 }
-
-
 
 %end
 
