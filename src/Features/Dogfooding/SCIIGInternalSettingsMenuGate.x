@@ -156,7 +156,7 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
         if ([SCIUtils getBoolPref:@"sci_employee_internal"] || [SCIUtils getBoolPref:@"sci_force_internal_settings_loggedout"]) {
             SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
         }
-        ILOG("viewDidLoad: patched ivars directly before orig (status=%lld, loggedIn=%s)", availabilityVal, currentSession ? "YES" : "NO");
+        ILOG("viewDidLoad: patched ivars directly before orig (patched=%s, status=%lld, loggedIn=%s)", patched ? "YES" : "NO", availabilityVal, currentSession ? "YES" : "NO");
     }
     %orig;
     if (SCIMenuGateOn()) {
