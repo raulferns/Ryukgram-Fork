@@ -161,7 +161,10 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
 // We intercept the Dogfooding Assistant row here, detect it by class name,
 // and directly create + present the VC ourselves.
 - (void)tableView:(id)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (!SCIMenuGateOn()) { %orig; return; }
+    if (!SCIMenuGateOn()) {
+        %orig;
+        return;
+    }
 
     // Try to identify if the tapped row is the DogfoodingAssistant row.
     // The menu builds an ordered array of row objects; the dogfooding assistant
@@ -179,7 +182,10 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
         }
     } @catch (__unused id e) {}
 
-    if (!isDogfoodRow) { %orig; return; }
+    if (!isDogfoodRow) {
+        %orig;
+        return;
+    }
 
     ILOG("Intercepted Dogfooding Assistant tap — presenting VC directly");
 
