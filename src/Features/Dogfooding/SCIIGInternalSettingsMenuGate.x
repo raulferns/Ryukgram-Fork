@@ -121,42 +121,51 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
 // Patch them directly once the view is loaded so that didSelectRowAtIndexPath:
 // and the subtitle builder both see the correct values.
 - (void)viewDidLoad {
-    BOOL gateOn = SCIMenuGateOn();
-    BOOL forceAvailability = [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"];
+    if (SCIMenuGateOn() || [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"]) {
+        Ivar sessionIvar = class_getInstanceVariable(object_getClass(self), "userSession");
+        id currentSession = nil;
+        if (sessionIvar) {
+            currentSession = object_getIvar(self, sessionIvar);
+        }
+        if (!currentSession) {
+            currentSession = [SCIDogfoodObjectRuntime activeUserSession];
+            if (currentSession && sessionIvar) {
+                object_setIvar(self, sessionIvar, currentSession);
+                ILOG("viewDidLoad: userSession was nil, patched with activeUserSession");
+            }
+        }
 
-    if (gateOn || forceAvailability) {
         long long availabilityVal = 0;
-        if (forceAvailability) {
+        if ([SCIUtils getBoolPref:@"sci_force_internal_settings_availability"]) {
             availabilityVal = (long long)[SCIUtils getDoublePref:@"sci_internal_settings_availability_value"];
-        } else if (gateOn) {
+        } else if (SCIMenuGateOn()) {
             availabilityVal = 0;
         }
 
-        BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", availabilityVal);
-
-        ILOG("viewDidLoad: patched availability status directly before orig (gateOn=%s, patched=%s, status=%lld)",
-             gateOn ? "YES" : "NO", patched ? "YES" : "NO", availabilityVal);
+        BOOL patched = NO;
+        if (currentSession || [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"]) {
+            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", availabilityVal);
+            SCIPatchIvarToBool(self, "showInternalSettings", YES);
+            SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
+        } else {
+            patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", 2); // Denied
+            SCIPatchIvarToBool(self, "showInternalSettings", NO);
+            SCIPatchIvarToBool(self, "showDogfoodingAssistant", NO);
+        }
+        SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
+        if ([SCIUtils getBoolPref:@"sci_employee_internal"] || [SCIUtils getBoolPref:@"sci_force_internal_settings_loggedout"]) {
+            SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
+        }
+        ILOG("viewDidLoad: patched ivars directly before orig (patched=%s, status=%lld, loggedIn=%s)", patched ? "YES" : "NO", availabilityVal, currentSession ? "YES" : "NO");
     }
     %orig;
-    if (gateOn) {
+    if (SCIMenuGateOn()) {
         NSString *res = SCIInternalMenusForceApplyNow();
         ILOG("viewDidLoad: applied employee hooks: %s", res.UTF8String);
     }
 }
 
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (SCIMenuGateOn()) {
-        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-        if (cell && SCICellContainsText(cell, @"Internal Settings")) {
-            ILOG("Tapped Internal Settings cell. Triggering custom open sequence with fallback URIs...");
-            NSString *res = [SCIInternalMenusLauncher openInternalURLString:nil controller:self];
-            ILOG("Open internal settings URL sequence result: %@", res);
-            [tableView deselectRowAtIndexPath:indexPath animated:YES];
-            return;
-        }
-    }
-    %orig;
-}
+
 
 %end
 
