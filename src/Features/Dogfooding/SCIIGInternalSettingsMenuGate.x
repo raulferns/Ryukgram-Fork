@@ -125,19 +125,6 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
     BOOL forceAvailability = [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"];
 
     if (gateOn || forceAvailability) {
-        Ivar sessionIvar = class_getInstanceVariable(object_getClass(self), "userSession");
-        id currentSession = nil;
-        if (sessionIvar) {
-            currentSession = object_getIvar(self, sessionIvar);
-        }
-        if (gateOn && !currentSession) {
-            currentSession = [SCIDogfoodObjectRuntime activeUserSession];
-            if (currentSession && sessionIvar) {
-                object_setIvar(self, sessionIvar, currentSession);
-                ILOG("viewDidLoad: userSession was nil, patched with activeUserSession");
-            }
-        }
-
         long long availabilityVal = 0;
         if (forceAvailability) {
             availabilityVal = (long long)[SCIUtils getDoublePref:@"sci_internal_settings_availability_value"];
@@ -147,22 +134,8 @@ showShakeToReportPreferenceToggle:(BOOL)showShake {
 
         BOOL patched = SCIPatchIvarToLong(self, "internalSettingsAvailabilityStatus", availabilityVal);
 
-        if (gateOn) {
-            if (currentSession) {
-                SCIPatchIvarToBool(self, "showInternalSettings", YES);
-                SCIPatchIvarToBool(self, "showDogfoodingAssistant", YES);
-            } else {
-                SCIPatchIvarToBool(self, "showInternalSettings", NO);
-                SCIPatchIvarToBool(self, "showDogfoodingAssistant", NO);
-            }
-            SCIPatchIvarToBool(self, "showShakeToReportPreferenceToggle", YES);
-            if ([SCIUtils getBoolPref:@"sci_employee_internal"] || [SCIUtils getBoolPref:@"sci_force_internal_settings_loggedout"]) {
-                SCIPatchIvarToBool(self, "showLoggedOutInternalSettings", YES);
-            }
-        }
-
-        ILOG("viewDidLoad: patched ivars directly before orig (gateOn=%s, patched=%s, status=%lld, loggedIn=%s)",
-             gateOn ? "YES" : "NO", patched ? "YES" : "NO", availabilityVal, currentSession ? "YES" : "NO");
+        ILOG("viewDidLoad: patched availability status directly before orig (gateOn=%s, patched=%s, status=%lld)",
+             gateOn ? "YES" : "NO", patched ? "YES" : "NO", availabilityVal);
     }
     %orig;
     if (gateOn) {
