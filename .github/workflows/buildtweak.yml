@@ -1,106 +1,158 @@
-name: Build RyukGramPrivExp (rootless, SDK 26.2)
+name: Build RyukGram tweak
 
 on:
-    push:
-        branches:
-            - 'experiments'
-            - 'experimental'
-            - 'experimental2'
-            - 'experimental3'
-            - 'experimental4'
-    workflow_dispatch:
+  push:
+    branches: [experimental4]
+  pull_request:
+    branches: [experimental4]
+  workflow_dispatch:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-    build:
-        name: Build RyukGramPrivExp (rootless)
-        runs-on: macos-latest
-        permissions:
-            contents: write
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
 
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      SDK_NAME: iPhoneOS26.2.sdk
+      OUTPUT_BASENAME: Ryukgram-1.3.3.${{ github.run_number }}
+      SDK_CACHE_NAME: ios-sdks-26.2-16.2
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: main
+          submodules: recursive
+
+      - name: Verify Xcode 26.2 toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - run: brew install ldid dpkg make zip pipx
+      - run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Create Python venv
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install lief
+          pip install https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+
+      - uses: actions/checkout@v4
+        with:
+          repository: theos/theos
+          ref: master
+          path: ${{ github.workspace }}/theos
+          submodules: recursive
+
+      - uses: actions/cache@v4
+        id: SDK
         env:
-            SDK_NAME: iPhoneOS26.2.sdk
-            OUTPUT_BASENAME: RyukGramPrivExp.3.2.${{ github.run_number }}
+          SDKS: "iPhoneOS26.2.sdk iPhoneOS16.2.sdk"
+        with:
+          path: ${{ github.workspace }}/theos/sdks/
+          key: ${{ env.SDK_CACHE_NAME }}
+          restore-keys: ${{ env.SDK_CACHE_NAME }}
 
-        steps:
-            - name: Checkout Main
-              uses: actions/checkout@v4
-              with:
-                path: main
+      - if: steps.SDK.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/xybp888/iOS-SDKs/
+          cd iOS-SDKs
+      
+          git sparse-checkout init --no-cone
+          git sparse-checkout set iPhoneOS26.2.sdk iPhoneOS16.2.sdk
+          git checkout
+      
+          mkdir -p "$THEOS/sdks"
+      
+          mv iPhoneOS26.2.sdk "$THEOS/sdks/"
+          mv iPhoneOS16.2.sdk "$THEOS/sdks/"
+        env:
+          THEOS: ${{ github.workspace }}/theos
 
-            - name: Install Dependencies
-              run: brew install ldid dpkg make
+      - name: Validate SDK 26.2 and prepare
+        run: |
+          set -euo pipefail
+          cd main
+          chmod +x scripts/*.sh build.sh modules/build-dev.sh || true
+          scripts/validate-sdk26-liquidglass.sh
+          test -d "$THEOS/sdks/$SDK_NAME"
+          grep -q 'TARGET := iphone:clang:26.2:16.3' Makefile
+          grep -q '^ARCHS = arm64$' Makefile
+          ./scripts/setup-ffmpegkit.sh
+          echo "Skipping deb build in CI; building IPA only."
+        env:
+          THEOS: ${{ github.workspace }}/theos
 
-            - name: Set PATH environment variable
-              run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+      - name: Download base Instagram IPA (via GitHub API)
+        run: |
+          set -euo pipefail
+          cd main/packages
 
-            - name: Setup Theos
-              uses: actions/checkout@v4
-              with:
-                repository: theos/theos
-                ref: master
-                path: ${{ github.workspace }}/theos
-                submodules: recursive
+          owner=raulferns
+          repo=Ryukgram-Fork
+          tag=v1.2.3
 
-            - name: SDK Caching
-              id: SDK
-              uses: actions/cache@v4
-              env:
-                cache-name: iPhoneOS26.2.sdk
-              with:
-                path: ${{ github.workspace }}/theos/sdks/
-                key: ${{ env.cache-name }}
-                restore-keys: ${{ env.cache-name }}
+          api="https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}"
+          echo "Fetching release ${tag} from ${owner}/${repo}"
 
-            - name: Download iOS SDK
-              if: steps.SDK.outputs.cache-hit != 'true'
-              run: |
-                git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/xybp888/iOS-SDKs/
-                cd iOS-SDKs
-                git sparse-checkout set --no-cone "$SDK_NAME"
-                git checkout
-                mkdir -p "$THEOS/sdks"
-                mv *.sdk "$THEOS/sdks"
-              env:
-                THEOS: ${{ github.workspace }}/theos
+          release_json=$(curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api") || {
+              echo "Unable to fetch release ${tag}; skipping IPA download/build"
+              exit 0
+            }
 
-            - name: Validate SDK 26.2 LiquidGlass headers
-              run: |
-                cd main
-                chmod +x scripts/*.sh build.sh || true
-                scripts/validate-sdk26-liquidglass.sh
-                test -d "$THEOS/sdks/$SDK_NAME"
-                grep -q 'TARGET := iphone:clang:26.2:16.3' Makefile
-                grep -q '^ARCHS = arm64$' Makefile
-              env:
-                THEOS: ${{ github.workspace }}/theos
+          asset_url=$(echo "$release_json" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next((a.get("browser_download_url","") for a in d.get("assets",[]) if a.get("name","").endswith(".ipa")), ""))')
 
-            - name: Setup FFmpegKit
-              run: cd main && ./scripts/setup-ffmpegkit.sh
+          if [ -z "$asset_url" ]; then
+            echo "No IPA asset found for release ${tag}; skipping IPA download/build"
+            exit 0
+          fi
 
-            - name: Install Python dependencies (obfuscate-classes.py)
-              run: pip3 install lief || pip3 install lief --break-system-packages
+          echo "Downloading IPA from: $asset_url"
+          curl -fL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -o "com.burbn.instagram.ipa" \
+            "$asset_url"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Build rootless
-              run: |
-                cd main
-                ./build.sh rootless
-                mkdir -p release
-                DEB="$(ls -t packages/*-rootless.deb packages/*.deb 2>/dev/null | head -n1)"
-                test -n "$DEB"
-                cp "$DEB" "release/${OUTPUT_BASENAME}.deb"
-                ls -la release
-              env:
-                THEOS: ${{ github.workspace }}/theos
-                THEOS_PLATFORM_DEB_COMPRESSION_TYPE: lzma
-                THEOS_PLATFORM_DEB_COMPRESSION_LEVEL: 9
+      - name: Build noplugins IPA
+        run: |
+          set -xeuo pipefail
+          cd main
+          chmod +x scripts/*.sh build.sh modules/build-dev.sh || true
+          
+          if [ ! -f "packages/com.burbn.instagram.ipa" ]; then
+            echo "Skipping IPA build: decrypted Instagram IPA not found in packages/"
+            echo "   To build IPA locally, place com.burbn.instagram.ipa in the packages/ folder"
+            exit 0
+          fi
+          
+          ./scripts/setup-ffmpegkit.sh
+          ./build.sh noplugins
+          mkdir -p release
+          IPA="$( { ls -t packages/*noplugins*.ipa packages/*sideloaded*.ipa packages/*.ipa 2>/dev/null || true; } | head -n 1)"
+          test -n "$IPA"
+          cp "$IPA" "release/${OUTPUT_BASENAME}.ipa"
+          ls -la release
+        env:
+          THEOS: ${{ github.workspace }}/theos
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Upload rootless artifact
-              uses: actions/upload-artifact@v4
-              with:
-                name: RyukGramPrivExp.3.2.${{ github.run_number }}
-                path: main/release/RyukGramPrivExp.3.2.${{ github.run_number }}.deb
-                if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ryukgram-1.3.3.${{ github.run_number }}-ipa
+          path: main/release/Ryukgram-1.3.3.${{ github.run_number }}.ipa
+          if-no-files-found: ignore
