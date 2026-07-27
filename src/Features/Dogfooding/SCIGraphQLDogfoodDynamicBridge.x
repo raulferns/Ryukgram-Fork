@@ -3,6 +3,8 @@
 #import <substrate.h>
 #import <os/log.h>
 #import <string.h>
+#import <mach-o/dyld.h>
+#import <stdatomic.h>
 
 #define DGBLOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] GraphQLDynamicBridge " fmt, ##__VA_ARGS__)
 
@@ -53,6 +55,40 @@ void SCIInstallGraphQLDogfoodQueryBridgeIfNeeded(void) {
     installed = (orig_SCIDogfoodEligibilityBuilder != NULL);
 }
 
+
+// Correct install timing for classes that live in frameworks loaded AFTER the
+// dylib (IGDogfoodingFirst, IGDogfooderProd, the Swift coordinator/lockout VC).
+// %ctor alone is too early (objc_getClass == nil); a user-triggered/viewDidLoad
+// pass is too late (the build-status check already ran and cached useCache=1).
+// dyld notifies us as each image loads+binds; we then re-run the idempotent
+// installer so every target is hooked the moment its framework appears — before
+// Instagram's session-start dogfooding flow uses it. The hook itself is deferred
+// off the dyld lock (main queue) to avoid deadlocking the ObjC runtime lock.
+static atomic_bool sDGScanQueued = false;
+static atomic_bool sDGAllInstalled = false;
+
+static void SCIDGImageAdded(const struct mach_header *mh, intptr_t slide) {
+    (void)mh; (void)slide;
+    if (atomic_load(&sDGAllInstalled)) return;
+    bool expected = false;
+    if (!atomic_compare_exchange_strong(&sDGScanQueued, &expected, true)) return; // coalesce
+    dispatch_async(dispatch_get_main_queue(), ^{
+        atomic_store(&sDGScanQueued, false);
+        if (atomic_load(&sDGAllInstalled)) return;
+        Class cls = objc_getClass("SCIGraphQLDogfoodDiagnostics");
+        if (!cls) return;
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        NSString *result = [cls performSelector:@selector(installObservers)];
+        #pragma clang diagnostic pop
+        // Latch off once nothing is missing (all target classes have loaded+hooked).
+        if ([result isKindOfClass:[NSString class]] &&
+            [result rangeOfString:@"ABI-mismatched: none"].location != NSNotFound) {
+            atomic_store(&sDGAllInstalled, true);
+        }
+    });
+}
+
 %ctor {
     @autoreleasepool {
         Class cls = objc_getClass("SCIGraphQLDogfoodDiagnostics");
@@ -64,5 +100,8 @@ void SCIInstallGraphQLDogfoodQueryBridgeIfNeeded(void) {
                             (IMP)SCIGraphQLInstallObservers,
                             (IMP *)&orig_SCIGraphQLInstallObservers);
         }
+        // Install on every image load so late-loading framework classes get hooked
+        // at the right time (fires immediately for already-loaded images too).
+        _dyld_register_func_for_add_image(SCIDGImageAdded);
     }
 }

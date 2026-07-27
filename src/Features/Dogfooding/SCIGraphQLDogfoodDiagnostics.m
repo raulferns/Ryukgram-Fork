@@ -13,6 +13,8 @@ static NSNumber *sDGLastLookbackDays;
 static NSUInteger sDGEligibilityQueryCount;
 static NSUInteger sDGSessionStartCount;
 static NSUInteger sDGAvailableUpdateCheckCount;
+extern BOOL SCIIsGraphQLDogfoodForceEnabled(void);
+
 static NSUInteger sDGBuildStatusCheckCount;
 static NSUInteger sDGTriggerUpdateCount;
 static NSUInteger sDGWarningExpirationCount;
@@ -345,6 +347,18 @@ static void DGCheckBuildStatus(id self, SEL _cmd, id build, BOOL useCache, id co
     @synchronized (DGEvents()) { sDGBuildStatusCheckCount++; }
     DGRecord([NSString stringWithFormat:@"backend check: dogfood build status buildClass=%@ useCache=%d",
               DGClassName(build), useCache]);
+    // Tier-2 lever: Instagram short-circuits the whole dogfooding flow here when the
+    // build resolves to IGDistributedMobileBuild (production) — the eligibility query
+    // is never even built (Query builds: 0). When forcing is on, answer the completion
+    // ourselves with a dogfood-eligible result instead of the real backend answer, so
+    // Instagram proceeds to build the eligibility query. Completion ABI is
+    // void(^)(BOOL, NSError *) per checkBuildStatusForBuild:useCacheResultIfAvailable:completion:.
+    if (completion && SCIIsGraphQLDogfoodForceEnabled()) {
+        void (^cb)(BOOL, id) = completion;
+        DGRecord(@"backend check: FORCED dogfood-eligible (Tier-2)");
+        dispatch_async(dispatch_get_main_queue(), ^{ cb(YES, nil); });
+        return;
+    }
     if (orig_DGCheckBuildStatus) orig_DGCheckBuildStatus(self, _cmd, build, useCache, completion);
 }
 
