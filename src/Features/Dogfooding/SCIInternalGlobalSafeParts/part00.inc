@@ -19,11 +19,13 @@
 #import <os/log.h>
 #import <stdint.h>
 #import <stdatomic.h>
+#import <stdlib.h>
 #import <string.h>
 
 #define IGSLOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] InternalGlobalSafe " fmt, ##__VA_ARGS__)
 
 void SCIInstallEmployeeIdentityHooksIfNeeded(void);
+void SCIInstallEmployeeIdentityHooksForObject(id object);
 BOOL SCIInstallInternalGlobalHooksIfNeeded(void);
 
 typedef struct {
@@ -57,10 +59,35 @@ static BOOL SCIEmployeeInternalMasterOn(void) {
            [SCIUtils getBoolPref:@"sci_internal_menus"];
 }
 
-static BOOL SCIInternalMenuOn(void) {
+static BOOL SCIShowInternalSettingsOn(void) {
     return SCIEmployeeInternalMasterOn() ||
            [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"] ||
            [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"];
+}
+
+static BOOL SCILoggedOutInternalSettingsOn(void) {
+    return [SCIUtils getBoolPref:@"sci_force_internal_settings_loggedout"];
+}
+
+// Any Bug Reporter surface that requires the authoritative outer hook.
+static BOOL SCIInternalMenuOn(void) {
+    return SCIShowInternalSettingsOn() || SCILoggedOutInternalSettingsOn();
+}
+
+static NSInteger SCIInternalSettingsAvailabilityStatus(void) {
+    // The employee/master and explicit menu paths always request the verified
+    // allowed value. The standalone availability diagnostic may intentionally
+    // select 0...2 from Settings.
+    if (SCIEmployeeInternalMasterOn() ||
+        [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"]) {
+        return 0;
+    }
+
+    NSInteger value = (NSInteger)[SCIUtils getDoublePref:
+        @"sci_internal_settings_availability_raw_value"];
+    if (value < 0) return 0;
+    if (value > 2) return 2;
+    return value;
 }
 
 static BOOL SCIEncodingMatches(Method method, const char *expected) {

@@ -28,13 +28,6 @@ static inline BOOL EIMasterOn(void) {
            [SCIUtils getBoolPref:@"sci_internal_menus"];
 }
 
-static inline BOOL EIAnyInternalSurfaceOn(void) {
-    return EIMasterOn() ||
-           [SCIUtils getBoolPref:@"sci_force_internal_settings_menu"] ||
-           [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"] ||
-           [SCIUtils getBoolPref:@"sci_force_internal_settings_loggedout"];
-}
-
 // MARK: - Known Objective-C identity propagation
 
 %group SCIEmployeeKnownObjCGroup
@@ -82,8 +75,8 @@ static BOOL EIAdLoggerSwiftIsEmployee(id self, SEL _cmd) {
 
 static void EIAdLoggerSwiftSetIsEmployee(id self, SEL _cmd, BOOL value) {
     if (orig_EIAdLoggerSwiftSetIsEmployee) {
-        orig_EIAdLoggerSwiftSetIsEmployee(self, _cmd,
-                                          EIMasterOn() ? YES : value);
+        orig_EIAdLoggerSwiftSetIsEmployee(
+            self, _cmd, EIMasterOn() ? YES : value);
     }
 }
 
@@ -102,16 +95,18 @@ static BOOL EIInstallSwiftIdentityHooks(void) {
     Method getterMethod = class_getInstanceMethod(cls, getter);
     if (!orig_EIAdLoggerSwiftIsEmployee &&
         EITypeEncodingMatches(getterMethod, "B16@0:8")) {
-        MSHookMessageEx(cls, getter, (IMP)EIAdLoggerSwiftIsEmployee,
-                        (IMP *)&orig_EIAdLoggerSwiftIsEmployee);
+        MSHookMessageEx(
+            cls, getter, (IMP)EIAdLoggerSwiftIsEmployee,
+            (IMP *)&orig_EIAdLoggerSwiftIsEmployee);
     }
 
     SEL setter = sel_registerName("setIsEmployee:");
     Method setterMethod = class_getInstanceMethod(cls, setter);
     if (!orig_EIAdLoggerSwiftSetIsEmployee &&
         EITypeEncodingMatches(setterMethod, "v20@0:8B16")) {
-        MSHookMessageEx(cls, setter, (IMP)EIAdLoggerSwiftSetIsEmployee,
-                        (IMP *)&orig_EIAdLoggerSwiftSetIsEmployee);
+        MSHookMessageEx(
+            cls, setter, (IMP)EIAdLoggerSwiftSetIsEmployee,
+            (IMP *)&orig_EIAdLoggerSwiftSetIsEmployee);
     }
 
     return orig_EIAdLoggerSwiftIsEmployee != NULL ||
@@ -145,7 +140,8 @@ static BOOL EIIsZeroArgumentBoolGetter(Method method) {
 }
 
 static Class EIIdentityDeclaringClass(Class cls, SEL selector) {
-    for (Class current = cls; current; current = class_getSuperclass(current)) {
+    for (Class current = cls; current;
+         current = class_getSuperclass(current)) {
         unsigned int count = 0;
         Method *methods = class_copyMethodList(current, &count);
         BOOL declares = NO;
@@ -165,7 +161,8 @@ static BOOL EIIdentityBoolGetter(id self, SEL _cmd) {
     if (EIMasterOn()) return YES;
 
     IMP original = NULL;
-    NSMutableDictionary<NSString *, NSValue *> *store = EIIdentityOriginals();
+    NSMutableDictionary<NSString *, NSValue *> *store =
+        EIIdentityOriginals();
     @synchronized (store) {
         for (Class cls = object_getClass(self); cls;
              cls = class_getSuperclass(cls)) {
@@ -176,7 +173,9 @@ static BOOL EIIdentityBoolGetter(id self, SEL _cmd) {
             }
         }
     }
-    return original ? ((BOOL (*)(id, SEL))original)(self, _cmd) : NO;
+    return original
+        ? ((BOOL (*)(id, SEL))original)(self, _cmd)
+        : NO;
 }
 
 static BOOL EIInstallIdentitySelectorOnClass(Class cls, SEL selector) {
@@ -201,13 +200,15 @@ static BOOL EIInstallIdentitySelectorOnClass(Class cls, SEL selector) {
     }
 
     NSString *key = EIIdentityKey(cls, selector);
-    NSMutableDictionary<NSString *, NSValue *> *store = EIIdentityOriginals();
+    NSMutableDictionary<NSString *, NSValue *> *store =
+        EIIdentityOriginals();
     @synchronized (store) {
         if (store[key]) return YES;
     }
 
     IMP original = NULL;
-    MSHookMessageEx(cls, selector, (IMP)EIIdentityBoolGetter, &original);
+    MSHookMessageEx(
+        cls, selector, (IMP)EIIdentityBoolGetter, &original);
     if (!original) return NO;
 
     @synchronized (store) {
@@ -218,8 +219,9 @@ static BOOL EIInstallIdentitySelectorOnClass(Class cls, SEL selector) {
     return YES;
 }
 
-static NSUInteger EIInstallIdentityHooksOnClass(Class cls,
-                                                 BOOL includeIsEmployee) {
+static NSUInteger EIInstallIdentityHooksOnClass(
+    Class cls, BOOL includeIsEmployee
+) {
     if (!cls || !includeIsEmployee) return 0;
     return EIInstallIdentitySelectorOnClass(
         cls, sel_registerName("isEmployee")) ? 1 : 0;
@@ -228,7 +230,8 @@ static NSUInteger EIInstallIdentityHooksOnClass(Class cls,
 void SCIInstallEmployeeIdentityHooksForObject(id object) {
     if (!EIMasterOn() || !object) return;
     Class cls = object_getClass(object);
-    BOOL includeIsEmployee = cls != objc_getClass("IGFacebookUserInfo");
+    BOOL includeIsEmployee =
+        cls != objc_getClass("IGFacebookUserInfo");
     EIInstallIdentityHooksOnClass(cls, includeIsEmployee);
 }
 
@@ -248,7 +251,8 @@ static NSUInteger EIInstallKnownIdentityHooks(void) {
         Class cls = NSClassFromString(className);
         BOOL includeIsEmployee =
             ![className isEqualToString:@"IGFacebookUserInfo"];
-        installed += EIInstallIdentityHooksOnClass(cls, includeIsEmployee);
+        installed += EIInstallIdentityHooksOnClass(
+            cls, includeIsEmployee);
     }
     return installed;
 }
@@ -268,24 +272,23 @@ void SCIInstallEmployeeIdentityHooksIfNeeded(void) {
     NSUInteger runtimeCount = EIInstallKnownIdentityHooks();
     BOOL swiftInstalled = EIInstallSwiftIdentityHooks();
     EILOG("installed master=%d runtime=%lu swift=%d",
-          EIMasterOn(), (unsigned long)runtimeCount, swiftInstalled);
+          EIMasterOn(), (unsigned long)runtimeCount,
+          swiftInstalled);
 }
 
 void SCIInstallEmployeeInternalHooksIfNeeded(void) {
-    SCIInstallEmployeeIdentityHooksIfNeeded();
-
-    // Compatibility entry point used by older Dev controls. Route every legacy
-    // caller to the single authoritative Internal Global installer instead of
-    // reinstalling Bug Reporter hooks in this translation unit.
-    if (EIAnyInternalSurfaceOn()) {
-        SCIRequestInternalGlobalHooksInstall();
-    }
+    // Compatibility entry point retained for older Settings callers. The
+    // authoritative global installer owns identity + MobileConfig + Bug Reporter
+    // ordering and remains idempotent.
+    SCIRequestInternalGlobalHooksInstall();
 }
 
 %ctor {
     @autoreleasepool {
-        if (EIAnyInternalSurfaceOn()) {
-            SCIInstallEmployeeInternalHooksIfNeeded();
+        // Identity is safe to install synchronously for launch-linked classes.
+        // The separate Internal Global constructor owns menu/MC installation.
+        if (EIMasterOn()) {
+            SCIInstallEmployeeIdentityHooksIfNeeded();
         }
     }
 }
