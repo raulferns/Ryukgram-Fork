@@ -101,23 +101,25 @@ static SCISetting *SCIExperimentSwitch(
 
 static SCISetting *SCITier2EmployeeInternalSwitch(void) {
 	return [SCISetting switchCellWithTitle:SCILocalized(@"Tier-2 Employee / Internal")
-		subtitle:SCILocalized(@"Discovers the shared raw MobileConfig gate structurally and returns YES only for its verified descriptor")
+		subtitle:SCILocalized(@"Uses the canonical employee/test-user GraphQL fragment and adds only the verified employee account badge")
 		value:^BOOL {
 			return [SCIUtils getBoolPref:@"sci_tier2_employee_internal"];
 		} action:^(BOOL on) {
-			// The old employee toggle and its getBool: hook are deliberately not a
-			// fallback: Tier-2 owns this preference and fails closed if it cannot
-			// prove the current app's structural shape.
+			// Legacy employee/defaults and MobileConfig hooks are deliberately
+			// not fallbacks. Tier-2 owns the canonical GraphQL identity source.
 			[SCIUtils setPref:@NO forKey:@"sci_employee_internal"];
 			[SCIUtils setPref:@NO forKey:@"sci_force_mc_session_employee_gate"];
+			[SCIUtils setPref:@NO forKey:@"sci_force_ig_internal_employee"];
+			[SCIUtils setPref:@NO forKey:@"sci_force_ig_is_employee"];
+			[SCIUtils setPref:@NO forKey:@"sci_force_employee_defaults_persist"];
 			[SCIUtils setPref:@(on) forKey:@"sci_tier2_employee_internal"];
 			SCITier2EmployeeGateSetEnabled(on);
 			[SCIUtils showToastForDuration:2.5
 				title:on ? @"Tier-2 Employee / Internal applied"
 				         : @"Tier-2 Employee / Internal disabled"
 				subtitle:on
-					? @"Verified MobileConfig reads are redirected; cached results may need a restart"
-					: @"Original MobileConfig results are used"];
+					? @"The canonical accountBadges source now includes employee badge @0"
+					: @"Original GraphQL account badges are used"];
 		}];
 }
 
@@ -207,7 +209,7 @@ static SCISetting *SCIInternalSettingsSwitch(
 		},
 		@{
 			@"header": SCILocalized(@"Tier-2, GraphQL Dogfood & Internal Settings"),
-			@"footer": SCILocalized(@"Tier-2 selects one shared MobileConfig leaf by shape and reuse, then lets all consumers of that gate observe its enabled value. It uses a signed ElleKit message hook only; unrelated MobileConfig reads keep their original result. Internal-only content may still require server authorization."),
+			@"footer": SCILocalized(@"Tier-2 follows IGUserIsEmployeeOrTestUserFragment to its shared accountBadges source and adds only employee badge @0. It uses targeted message hooks; EasyGating and unrelated MobileConfig reads keep their original result. Dogfood eligibility and internal plugin payloads remain separate and may still require server or internal-build authorization."),
 			@"rows": @[
 				SCITier2EmployeeInternalSwitch(),
 				SCIInternalSettingsSwitch(

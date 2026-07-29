@@ -285,14 +285,14 @@ static void DGRecordBadgesFromModel(id model) {
     id badges = [model respondsToSelector:badgesSel]
         ? ((id (*)(id, SEL))objc_msgSend)(model, badgesSel)
         : nil;
-    NSString *description = [[badges description] uppercaseString] ?: @"";
-    BOOL employee = [description containsString:@"IS_EMPLOYEE"];
-    BOOL testUser = [description containsString:@"IS_TEST_USER"];
+    BOOL employeeBadge = [badges respondsToSelector:@selector(containsObject:)]
+        ? [badges containsObject:@0]
+        : NO;
     NSUInteger count = [badges respondsToSelector:@selector(count)]
         ? ((NSUInteger (*)(id, SEL))objc_msgSend)(badges, @selector(count))
         : 0;
-    DGRecord([NSString stringWithFormat:@"account_badges fragment=%@ count=%lu employee=%d testUser=%d",
-              DGClassName(model), (unsigned long)count, employee, testUser]);
+    DGRecord([NSString stringWithFormat:@"account_badges fragment=%@ count=%lu employeeBadge0=%d",
+              DGClassName(model), (unsigned long)count, employeeBadge]);
 }
 
 static id (*orig_DGEmployeeFragment)(id, SEL) = NULL;

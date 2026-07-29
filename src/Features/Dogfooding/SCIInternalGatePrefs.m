@@ -189,6 +189,9 @@ static void SCIClearCrashMarker(void) {
 
 + (BOOL)boolForKey:(NSString *)key { return [SCIUtils getBoolPref:key]; }
 + (BOOL)employeeInternalMasterEnabled {
+    // Tier-2 owns employee identity when enabled. Suppress legacy masters even
+    // if old preferences survive into this launch.
+    if ([self boolForKey:@"sci_tier2_employee_internal"]) return NO;
     return [self boolForKey:kSCIForceIGObjCMasterKey] ||
            [self boolForKey:@"sci_force_ig_is_employee"];
 }

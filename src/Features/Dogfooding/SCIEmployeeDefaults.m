@@ -1,6 +1,7 @@
 #import "SCIEmployeeDefaults.h"
 #import "SCIInternalGatePrefs.h"
 #import "SCIDogfoodObjectRuntime.h"
+#import "../MobileConfig/SCITier2EmployeeGate.h"
 #import "../../Utils.h"
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -24,11 +25,14 @@ static void SCIUpdateEmployeeEnabledCache(void) {
     // Legacy global-default rewriting is intentionally separate from the
     // Employee/Internal identity master. It runs only when explicitly opted in.
     sSCIEmployeeEnabledCache =
+        ![SCIUtils getBoolPref:@"sci_tier2_employee_internal"] &&
         [SCIInternalGatePrefs individualGateEnabledForKey:kSCIForceEmployeeDefaultsKey];
 }
 
 static BOOL SCIEmployeeDefaultsEnabled(void) {
-    return sSCIEmployeeEnabledCache; // pure C — no ObjC, no NSUserDefaults
+    // Pure C hot path: Tier-2 suppresses an already-installed legacy hook even
+    // if constructor ordering populated the old cache first.
+    return sSCIEmployeeEnabledCache && !SCITier2EmployeeGateEnabled();
 }
 
 static BOOL SCIEmployeeKeyMatches(id keyObj) {
