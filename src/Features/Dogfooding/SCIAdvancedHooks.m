@@ -3,15 +3,15 @@
 #import "../../Utils.h"
 #import <Foundation/Foundation.h>
 
-// On-toggle apply for the Dev hooks that are installed on demand.
+// On-toggle apply for the Dev hooks that are genuinely safe to install live.
 //
-// The static BOOL gates (IG-only/internal ObjC getters, EasyGating/MobileConfig/
-// Sessioned C gates) are NO LONGER applied here — they were rewritten onto
-// priv-main conventions:
-//   • ObjC getters  → SCIDevInternalGates.x (always-on %hook, live pref read)
-//   • C gates       → SCIDevCGates.x (fishhook latched at %ctor; needs restart)
-// This orchestrator now only drives the genuinely on-demand pieces: internal
-// menus force, the internal-settings shake menu, and the IGDS launcher hooks.
+// Employee/Internal for the new IG is a coordinated launch-time chain:
+// SCIEmployeeInternal -> SCIInternalGlobalSafe (MobileConfig + Bug Reporter
+// payload preflight + validated Dogfood openers).
+// Installing only one layer after a live preference change could expose a stale
+// Assistant row before its XPlugins payload guard is installed. Therefore those
+// keys intentionally require an app restart; their method bodies read prefs live
+// once the complete chain has been installed.
 
 void SCIIGDSEnsureHooksInstalled(void);
 
@@ -22,8 +22,12 @@ static BOOL SCIKeyEqualsAny(NSString *key, NSArray<NSString *> *keys) {
 }
 
 static NSArray<NSString *> *SCIInternalSettingsKeys(void) {
-    return @[@"sci_force_internal_settings_menu",
+    return @[@"sci_employee_internal",
+             @"sci_force_ig_internal_employee",
+             @"sci_force_ig_is_employee",
+             @"sci_force_internal_settings_menu",
              @"sci_force_internal_settings_loggedout",
+             @"sci_force_internal_settings_availability",
              @"sci_apply_internal_native",
              @"sci_apply_force_bloks",
              @"sci_apply_bloks_prefetch"];
@@ -60,9 +64,14 @@ static NSArray<NSString *> *SCIIGDSKeys(void) {
 void SCIAdvancedHooksApplyForChangedKey(NSString *key, BOOL isOn) {
     if (!isOn || !key.length) return;
     @autoreleasepool {
-        if ([key isEqualToString:@"sci_internal_menus"]) (void)SCIInternalMenusForceApplyNow();
-        // Internal settings bug-reporter init agora é instalado no %ctor de
-        // SCIEmployeeInternal.x (toggle sci_employee_internal, requer restart).
+        if ([key isEqualToString:@"sci_internal_menus"]) {
+            (void)SCIInternalMenusForceApplyNow();
+        }
+        if (SCIKeyEqualsAny(key, SCIInternalSettingsKeys())) {
+            // Deliberately no partial live install. The complete safe chain is
+            // installed from its constructors on the next app launch.
+            return;
+        }
         if (SCIKeyEqualsAny(key, SCIIGDSKeys())) SCIIGDSEnsureHooksInstalled();
     }
 }
