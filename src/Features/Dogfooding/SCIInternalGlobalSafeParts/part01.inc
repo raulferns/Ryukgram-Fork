@@ -1,16 +1,13 @@
 
+// Payload availability can change after constructor time when the exporting
+// image/session graph becomes available. Query the real provider each time;
+// these checks are only used on installation/status and on the two exact MC IDs.
 static BOOL SCIInternalOnlyPayloadAvailable(void) {
-    static BOOL available = NO;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ available = SCIXPluginsPayloadAvailable(kSCIInternalOnlyPluginHash); });
-    return available;
+    return SCIXPluginsPayloadAvailable(kSCIInternalOnlyPluginHash);
 }
 
 static BOOL SCIDogfoodAssistantPayloadAvailable(void) {
-    static BOOL available = NO;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ available = SCIXPluginsPayloadAvailable(kSCIDogfoodSocketPluginHash); });
-    return available;
+    return SCIXPluginsPayloadAvailable(kSCIDogfoodSocketPluginHash);
 }
 
 static BOOL SCIShouldForceMCParam(SCIMCBoolParam param) {

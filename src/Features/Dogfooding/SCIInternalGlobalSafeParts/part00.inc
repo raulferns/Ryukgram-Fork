@@ -3,10 +3,9 @@
 // Instagram fa19f499c560b188d2802e3a1a36642209ee6e42d7639c1ebe010f14b2c4cd9b
 // FBSharedFramework a79c110c59e7c16e5608227e12807583c1afcf80cb2a2e38302f147dbf99c12b
 //
-// Important: XPlugins hashes 0x64327C01 (internal_only) and 0x7FBC8058
-// (Dogfooding Assistant socket) both resolve to the empty provider at
-// Instagram+0x02BD80E4. A provider returns a 16-byte pair in x0/x1
-// (data pointer, element count). Never replace it with a BOOL/sentinel pointer.
+// XPlugins hashes 0x64327C01 (internal_only) and 0x7FBC8058
+// (Dogfooding Assistant socket) resolve to providers returning a 16-byte pair
+// in x0/x1: (data pointer, element count). Never substitute BOOL/sentinel data.
 
 #import "../../../Utils.h"
 #import "../SCIInternalGatePrefs.h"
@@ -19,11 +18,12 @@
 #import <dlfcn.h>
 #import <os/log.h>
 #import <stdint.h>
+#import <stdatomic.h>
 #import <string.h>
 
 #define IGSLOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[SCIGate] InternalGlobalSafe " fmt, ##__VA_ARGS__)
 
-void SCIInstallEmployeeInternalHooksIfNeeded(void);
+void SCIInstallEmployeeIdentityHooksIfNeeded(void);
 BOOL SCIInstallInternalGlobalHooksIfNeeded(void);
 
 typedef struct {
@@ -43,12 +43,18 @@ static const uint64_t kSCIDogfoodingAssistantMC = 0x00810A8A000139D6ULL;
 static const uint32_t kSCIInternalOnlyPluginHash = 0x64327C01U;
 static const uint32_t kSCIDogfoodSocketPluginHash = 0x7FBC8058U;
 
-static __thread BOOL sSCISuppressLegacyEmployeeMenuMutation = NO;
+static _Atomic(uint64_t) sSCIXPluginsImageGeneration = 1;
+
+static void SCIAdvanceXPluginsImageGeneration(void) {
+    atomic_fetch_add_explicit(&sSCIXPluginsImageGeneration, 1,
+                              memory_order_release);
+}
 
 static BOOL SCIEmployeeInternalMasterOn(void) {
     return [SCIUtils getBoolPref:@"sci_employee_internal"] ||
            [SCIUtils getBoolPref:@"sci_force_ig_internal_employee"] ||
-           [SCIUtils getBoolPref:@"sci_force_ig_is_employee"];
+           [SCIUtils getBoolPref:@"sci_force_ig_is_employee"] ||
+           [SCIUtils getBoolPref:@"sci_internal_menus"];
 }
 
 static BOOL SCIInternalMenuOn(void) {
@@ -57,45 +63,43 @@ static BOOL SCIInternalMenuOn(void) {
            [SCIUtils getBoolPref:@"sci_force_internal_settings_availability"];
 }
 
-static BOOL (*orig_EmployeeInternalMasterEnabled)(id, SEL) = NULL;
-
-static BOOL SCI_EmployeeInternalMasterEnabled(id self, SEL _cmd) {
-    if (sSCISuppressLegacyEmployeeMenuMutation) return NO;
-    return orig_EmployeeInternalMasterEnabled
-        ? orig_EmployeeInternalMasterEnabled(self, _cmd)
-        : NO;
-}
-
 static BOOL SCIEncodingMatches(Method method, const char *expected) {
     if (!method || !expected) return NO;
     const char *encoding = method_getTypeEncoding(method);
     return encoding && strcmp(encoding, expected) == 0;
 }
 
-static void SCIInstallLegacyEmployeeSuppressionHook(void) {
-    static BOOL installed = NO;
-    if (installed) return;
-    Class cls = objc_getClass("SCIInternalGatePrefs");
-    Class meta = cls ? object_getClass(cls) : Nil;
-    SEL selector = @selector(employeeInternalMasterEnabled);
-    Method method = meta ? class_getInstanceMethod(meta, selector) : NULL;
-    const char *encoding = method ? method_getTypeEncoding(method) : NULL;
-    if (!method || !encoding ||
-        (strcmp(encoding, "B16@0:8") != 0 && strcmp(encoding, "c16@0:8") != 0)) return;
-    MSHookMessageEx(meta, selector, (IMP)SCI_EmployeeInternalMasterEnabled,
-                    (IMP *)&orig_EmployeeInternalMasterEnabled);
-    installed = orig_EmployeeInternalMasterEnabled != NULL;
-}
-
+// A constructor-time miss must not be cached forever, but repeatedly calling
+// MSFindSymbol(NULL, ...) is also wasteful. Cache a negative result only for the
+// current dyld image generation; any newly added image invalidates that miss.
 static SCIXPluginsGetDataFuncOrAbortFn SCIResolveXPluginsGetter(void) {
-    static SCIXPluginsGetDataFuncOrAbortFn fn = NULL;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        void *symbol = dlsym(RTLD_DEFAULT, "XPluginsGetDataFuncOrAbort");
-        if (!symbol) symbol = MSFindSymbol(NULL, "_XPluginsGetDataFuncOrAbort");
-        fn = (SCIXPluginsGetDataFuncOrAbortFn)symbol;
-    });
-    return fn;
+    static _Atomic(uintptr_t) cachedAddress = 0;
+    static _Atomic(uint64_t) failedGeneration = 0;
+
+    uintptr_t cached = atomic_load_explicit(&cachedAddress, memory_order_acquire);
+    if (cached) return (SCIXPluginsGetDataFuncOrAbortFn)cached;
+
+    uint64_t generation = atomic_load_explicit(&sSCIXPluginsImageGeneration,
+                                                memory_order_acquire);
+    if (atomic_load_explicit(&failedGeneration, memory_order_acquire) == generation) {
+        return NULL;
+    }
+
+    void *symbol = dlsym(RTLD_DEFAULT, "XPluginsGetDataFuncOrAbort");
+    if (!symbol) symbol = MSFindSymbol(NULL, "_XPluginsGetDataFuncOrAbort");
+    if (!symbol) {
+        atomic_store_explicit(&failedGeneration, generation,
+                              memory_order_release);
+        return NULL;
+    }
+
+    uintptr_t resolved = (uintptr_t)symbol;
+    uintptr_t expected = 0;
+    atomic_compare_exchange_strong_explicit(&cachedAddress, &expected, resolved,
+                                            memory_order_release,
+                                            memory_order_relaxed);
+    cached = atomic_load_explicit(&cachedAddress, memory_order_acquire);
+    return (SCIXPluginsGetDataFuncOrAbortFn)cached;
 }
 
 static BOOL SCIXPluginsPayloadAvailable(uint32_t hash) {

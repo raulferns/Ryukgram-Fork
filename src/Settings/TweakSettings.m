@@ -1,4 +1,5 @@
 #import "TweakSettings.h"
+#import "SCIInternalGlobalSettingsIntegration.h"
 #import "Sections/SCISettingsSections.h"
 #import "../SCIDefaults.h"
 #import "../UI/SCIOptionSheet.h"
@@ -97,9 +98,9 @@
 			@"rows": @[
 				({
 					SCISetting *s = [SCISetting buttonCellWithTitle:[NSString stringWithFormat:SCILocalized(@"%@ - BETA"), SCILocalized(@"Profile Analyzer")]
-										subtitle:@""
-											icon:[SCISymbol symbolWithIGName:@"green_screen" fallback:@"person.fill.viewfinder"]
-										  action:^{
+									   subtitle:@""
+										   icon:[SCISymbol symbolWithIGName:@"green_screen" fallback:@"person.fill.viewfinder"]
+										 action:^{
 						UIWindow *kw = nil;
 						for (UIWindow *w in [UIApplication sharedApplication].windows) if (w.isKeyWindow) { kw = w; break; }
 						UIViewController *top = kw.rootViewController;
@@ -143,6 +144,7 @@
 				({ SCISetting *s = [self backupNavCell]; s.whatsNewID = @"ui_backup"; s; }),
 				[self advancedNavCell],
 				[self debugNavCell],
+				SCIInternalGlobalEntryCell(),
 				[self devNavCell]
 			]
 		},
