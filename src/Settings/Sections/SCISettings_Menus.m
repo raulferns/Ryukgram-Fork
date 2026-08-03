@@ -110,6 +110,24 @@ static UIImage *SCIWordmarkMenuImage(NSString *name) {
 
 + (NSDictionary *)menus {
 	return @{
+		@"sci_idnamemap_unit": [UIMenu menuWithChildren:@[
+			[UICommand commandWithTitle:SCILocalized(@"Current session")
+								  image:nil
+								 action:@selector(menuChanged:)
+						   propertyList:@{ @"defaultsKey": @"sci_idnamemap_unit", @"value": @"current" }
+			],
+			[UICommand commandWithTitle:SCILocalized(@"Admin (kMobileConfigAdminId)")
+								  image:nil
+								 action:@selector(menuChanged:)
+						   propertyList:@{ @"defaultsKey": @"sci_idnamemap_unit", @"value": @"admin" }
+			],
+			[UICommand commandWithTitle:SCILocalized(@"Sessionless")
+								  image:nil
+								 action:@selector(menuChanged:)
+						   propertyList:@{ @"defaultsKey": @"sci_idnamemap_unit", @"value": @"sessionless" }
+			]
+		]],
+
 		@"gallery_save_mode": [UIMenu menuWithChildren:@[
 			[UICommand commandWithTitle:SCILocalized(@"Photos only")
 									image:nil

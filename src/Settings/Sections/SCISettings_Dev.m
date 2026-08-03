@@ -7,6 +7,7 @@
 #import "../../Features/Dogfooding/SCISymbolBrowserEngine.h"
 #import "../../Features/Dogfooding/SCIGraphQLDogfoodDiagnostics.h"
 #import "../../Features/Dogfooding/SCIDogfoodObjectRuntime.h"
+#import "../../Features/MobileConfig/SCIIdNameMapGenerator.h"
 
 void SCIInstallUnifiedExperimentManagerHooksIfNeeded(void);
 void SCIInstallInternalDevMenuHooksIfNeeded(void);
@@ -144,6 +145,61 @@ static SCISetting *SCIInternalSettingsSwitch(
 				: @"Preference disabled"
 			subtitle:nil];
 	}];
+}
+
+#pragma mark - id_name_mapping generator
+
+static SCIIdNameMapUnit SCIIdNameMapSelectedUnit(void) {
+	// The menu cell stores STRING values through UICommand.propertyList, so this
+	// pref must be read with getStringPref — not as a number.
+	NSString *raw = [SCIUtils getStringPref:@"sci_idnamemap_unit"];
+	if ([raw isEqualToString:@"admin"]) return SCIIdNameMapUnitAdmin;
+	if ([raw isEqualToString:@"sessionless"]) return SCIIdNameMapUnitSessionless;
+	return SCIIdNameMapUnitCurrentSession;
+}
+
+static double SCIIdNameMapTimeout(void) {
+	NSInteger seconds = (NSInteger)[SCIUtils getDoublePref:@"sci_idnamemap_timeout"];
+	if (seconds < 5) seconds = 30;
+	return (double)seconds;
+}
+
+static int SCIIdNameMapMode(void) {
+	NSInteger mode = (NSInteger)[SCIUtils getDoublePref:@"sci_idnamemap_mode"];
+	if (mode < 0 || mode > 3) mode = 1;
+	return (int)mode;
+}
+
+static void SCIIdNameMapPresentReport(NSString *title, NSString *report) {
+	UIViewController *top = SCIDevTop();
+	if (!top) return;
+	UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+		message:report preferredStyle:UIAlertControllerStyleAlert];
+	[alert addAction:[UIAlertAction actionWithTitle:SCILocalized(@"Copy")
+		style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+			UIPasteboard.generalPasteboard.string = report ?: @"";
+		}]];
+	[alert addAction:[UIAlertAction actionWithTitle:@"OK"
+		style:UIAlertActionStyleCancel handler:nil]];
+	[top presentViewController:alert animated:YES completion:nil];
+}
+
+static void SCIIdNameMapExport(void) {
+	NSURL *url = [SCIIdNameMapGenerator mappingFileURL];
+	if (!url) {
+		[SCIUtils showErrorHUDWithDescription:SCILocalized(@"id_name_mapping.json not generated yet")];
+		return;
+	}
+	UIViewController *top = SCIDevTop();
+	if (!top) return;
+	UIActivityViewController *sheet =
+		[[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+	if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+		sheet.popoverPresentationController.sourceView = top.view;
+		sheet.popoverPresentationController.sourceRect =
+			CGRectMake(CGRectGetMidX(top.view.bounds), CGRectGetMidY(top.view.bounds), 1, 1);
+	}
+	[top presentViewController:sheet animated:YES completion:nil];
 }
 
 @implementation SCITweakSettings (Section_Dev)
@@ -393,6 +449,103 @@ static SCISetting *SCIInternalSettingsSwitch(
 			]
 		},
 		@{
+			@"header": SCILocalized(@"Config name mapping"),
+			@"footer": SCILocalized(@"Instagram ships config IDs but no names: the iOS bundle has no mobileconfig_res/ folder at all, and the Android APK ships an empty name table. Names only exist after the app itself runs a param-list request and writes them to disk. Step 1 checks whether that is possible on this build; step 2 attempts it. Both are read-only diagnostics until step 2, which moves any existing file aside and restores it if nothing new is written. A signed-in session is required."),
+			@"rows": @[
+				[SCISetting menuCellWithTitle:SCILocalized(@"Unit")
+					subtitle:SCILocalized(@"Which config table to ask for")
+					menu:[self menus][@"sci_idnamemap_unit"]],
+				// The stepper prints its value INTO the subtitle via
+				// -formatString:withValue:label:singularLabel:, so the subtitle
+				// must carry the two %@ placeholders — without them the row shows
+				// bare +/- buttons and no number at all.
+				[SCISetting stepperCellWithTitle:SCILocalized(@"Request timeout")
+					subtitle:SCILocalized(@"Give up after %@ %@")
+					defaultsKey:@"sci_idnamemap_timeout"
+					min:5 max:120 step:5 label:@"seconds" singularLabel:@"second"],
+				[SCISetting stepperCellWithTitle:SCILocalized(@"Request mode")
+					subtitle:SCILocalized(@"Using mode %@%@ — mode 1 is the one that writes names")
+					defaultsKey:@"sci_idnamemap_mode"
+					min:0 max:3 step:1 label:@"" singularLabel:@""],
+
+				({ SCISetting *setting = [SCISetting buttonCellWithTitle:SCILocalized(@"1 · Check what's possible")
+					subtitle:SCILocalized(@"Which pieces of the native config stack are reachable on this build")
+					icon:[SCISymbol symbolWithName:@"checkmark.shield"]
+					action:^{
+						SCIIdNameMapPresentReport(SCILocalized(@"Setup check"),
+							[SCIIdNameMapGenerator wiringState]);
+					}];
+					setting.dynamicValueText = ^NSString *{ return [SCIIdNameMapGenerator wiringSummary]; };
+					setting; }),
+
+				({ SCISetting *setting = [SCISetting buttonCellWithTitle:SCILocalized(@"2 · Generate names")
+					subtitle:SCILocalized(@"Asks Instagram's own config manager for the name list and waits for it to be written")
+					icon:[SCISymbol symbolWithName:@"square.and.arrow.down"]
+					action:^{
+						[SCIUtils showToastForDuration:2.0
+							title:SCILocalized(@"Requesting name list…")
+							subtitle:SCILocalized(@"Up to the timeout above")];
+						[SCIIdNameMapGenerator generateForUnit:SCIIdNameMapSelectedUnit()
+													   timeout:SCIIdNameMapTimeout()
+														  mode:SCIIdNameMapMode()
+													completion:^(NSString *report) {
+							SCIIdNameMapPresentReport(SCILocalized(@"Generate"), report);
+						}];
+					}];
+					setting.whatsNewID = @"dev_idnamemap";
+					setting; }),
+
+				({ SCISetting *setting = [SCISetting buttonCellWithTitle:SCILocalized(@"3 · Current file")
+					subtitle:SCILocalized(@"Where it is, how big, how many configs and params it names")
+					icon:[SCISymbol symbolWithName:@"doc.text.magnifyingglass"]
+					action:^{
+						SCIIdNameMapPresentReport(SCILocalized(@"Mapping file"),
+							[SCIIdNameMapGenerator mappingFileState]);
+					}];
+					setting.dynamicValueText = ^NSString *{ return [SCIIdNameMapGenerator shortStatus]; };
+					setting; }),
+
+				[SCISetting buttonCellWithTitle:SCILocalized(@"Share the file")
+					subtitle:SCILocalized(@"Send id_name_mapping.json out of the app")
+					icon:[SCISymbol symbolWithName:@"square.and.arrow.up"]
+					action:^{ SCIIdNameMapExport(); }],
+
+				[SCISetting navigationCellWithTitle:SCILocalized(@"Advanced")
+					subtitle:SCILocalized(@"Manual steps — only useful when step 2 fails")
+					icon:[SCISymbol symbolWithName:@"wrench.and.screwdriver"]
+					navSections:@[
+						@{
+							@"header": SCILocalized(@"Manual steps"),
+							@"footer": SCILocalized(@"Step 2 already runs all of these in order — use them one at a time to see which one fails.\n\nReinstall the network fetcher: Instagram creates a network component at launch and hands it to the config manager. It is captured on the way through and put back here. Without it the manager has no way to send anything, and the request returns instantly having done nothing.\n\nInspect fetcher wiring: reports whether the app left a hook to reattach that component automatically after the manager is rebuilt. On this build it did not — which is why the reinstall above is manual.\n\nRebuild the manager: throws the current config manager away and asks Instagram for a new one. The number it returns is Instagram's own status code, not a result. With no rebuild hooks present this changes nothing useful."),
+							@"rows": @[
+								[SCISetting buttonCellWithTitle:SCILocalized(@"Reinstall the network fetcher")
+									subtitle:SCILocalized(@"Puts the captured fetcher back on the live manager")
+									icon:[SCISymbol symbolWithName:@"bolt.horizontal"]
+									action:^{
+										SCIIdNameMapPresentReport(SCILocalized(@"Fetcher"),
+											[SCIIdNameMapGenerator reinstallFetcherForUnit:SCIIdNameMapSelectedUnit()]);
+									}],
+								[SCISetting buttonCellWithTitle:SCILocalized(@"Inspect fetcher wiring")
+									subtitle:SCILocalized(@"Whether the app left a hook to reattach the fetcher automatically")
+									icon:[SCISymbol symbolWithName:@"link"]
+									action:^{
+										SCIIdNameMapPresentReport(SCILocalized(@"Fetcher wiring"),
+											[SCIIdNameMapGenerator rebindFetcherForUnit:SCIIdNameMapSelectedUnit()]);
+									}],
+								[SCISetting buttonCellWithTitle:SCILocalized(@"Rebuild the manager")
+									subtitle:SCILocalized(@"Discards the current config manager and reports the status code")
+									icon:[SCISymbol symbolWithName:@"arrow.clockwise"]
+									action:^{
+										SCIIdNameMapPresentReport(SCILocalized(@"Rebuild"),
+											[SCIIdNameMapGenerator reloadUnit:SCIIdNameMapSelectedUnit()
+																	  timeout:SCIIdNameMapTimeout()]);
+									}],
+							]
+						}
+					]],
+			]
+		},
+				@{
 			@"header": SCILocalized(@"Runtime"),
 			@"footer": SCILocalized(@"The ObjC index includes supported BOOL methods with zero or one object/integer argument; GraphQL dogfood uses exact typed hooks instead of a global status hook."),
 			@"rows": @[
