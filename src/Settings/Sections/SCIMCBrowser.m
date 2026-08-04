@@ -10,7 +10,7 @@
 #include <mach-o/getsect.h>
 #include <dlfcn.h>
 
-#pragma mark - Embedded mapping
+#pragma mark - Embedded mapping (only for explicit deployBundledMappingOverwrite)
 
 static NSData *SCIEmbeddedMappingData(void) {
     Dl_info info;
@@ -308,7 +308,8 @@ static NSURL *SCIMCManagerContainerRoot(void) {
         NSData *data = path ? [NSData dataWithContentsOfFile:path] : nil;
         if (data.length) return data;
     }
-    return nil;
+    // Last-resort fallback for the explicit deploy action only.
+    return SCIEmbeddedMappingData();
 }
 
 - (void)reload {
@@ -319,6 +320,8 @@ static NSURL *SCIMCManagerContainerRoot(void) {
 
     NSURL *dir = self.userDataDir;
     NSURL *root = self.mobileconfigRoot;
+
+    // Overrides: always from the resolved user data dir.
     NSData *overrideData = [NSData dataWithContentsOfURL:[dir URLByAppendingPathComponent:@"mc_overrides.json"]];
     if (overrideData) {
         id json = [NSJSONSerialization JSONObjectWithData:overrideData options:0 error:nil];
@@ -331,15 +334,32 @@ static NSURL *SCIMCManagerContainerRoot(void) {
         }
     }
 
-    NSData *mappingData = SCIEmbeddedMappingData();
-    if (!mappingData) mappingData = [NSData dataWithContentsOfURL:[dir URLByAppendingPathComponent:@"id_name_mapping.json"]];
-    if (!mappingData) mappingData = [NSData dataWithContentsOfURL:[root URLByAppendingPathComponent:@"id_name_mapping.json"]];
-    if (!mappingData) mappingData = self.bundledMappingData;
-    if (mappingData) {
-        NSURL *seed = [dir URLByAppendingPathComponent:@"id_name_mapping.json"];
-        if (![NSFileManager.defaultManager fileExistsAtPath:seed.path]) {
-            [mappingData writeToURL:seed options:NSDataWritingAtomic error:nil];
+    // Name mapping: ONLY from the live container.
+    // Never use the embedded Mach-O section or the RyukGram.bundle resource as a
+    // fallback, and never seed/write the file into the container automatically.
+    // The mapping must already exist (SCIIdNameMapGenerator or user-placed).
+    // Explicit "Atualizar mapeamento" still deploys the bundled table on demand.
+    NSData *mappingData = [NSData dataWithContentsOfURL:[dir URLByAppendingPathComponent:@"id_name_mapping.json"]];
+    if (!mappingData) {
+        mappingData = [NSData dataWithContentsOfURL:[root URLByAppendingPathComponent:@"id_name_mapping.json"]];
+    }
+    // Also scan other candidate roots for an existing mapping (e.g. older layout).
+    if (!mappingData) {
+        NSFileManager *fm = NSFileManager.defaultManager;
+        for (NSURL *candidateRoot in self.candidateRoots) {
+            if ([candidateRoot isEqual:root] || [candidateRoot isEqual:dir.URLByDeletingLastPathComponent]) continue;
+            NSData *data = [NSData dataWithContentsOfURL:[candidateRoot URLByAppendingPathComponent:@"id_name_mapping.json"]];
+            if (data.length) { mappingData = data; break; }
+            for (NSURL *child in [fm contentsOfDirectoryAtURL:candidateRoot includingPropertiesForKeys:nil options:0 error:nil]) {
+                if (![child.lastPathComponent hasSuffix:@".data"]) continue;
+                data = [NSData dataWithContentsOfURL:[child URLByAppendingPathComponent:@"id_name_mapping.json"]];
+                if (data.length) { mappingData = data; break; }
+            }
+            if (mappingData) break;
         }
+    }
+
+    if (mappingData) {
         id json = [NSJSONSerialization JSONObjectWithData:mappingData options:0 error:nil];
         if ([json isKindOfClass:NSArray.class]) {
             for (NSString *entry in (NSArray *)json) {
@@ -464,20 +484,39 @@ static NSURL *SCIMCManagerContainerRoot(void) {
     payload[@"_qe_overrides_"] = @[];
     NSData *data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:error];
     if (!data) return NO;
-    return [data writeToURL:[self.userDataDir URLByAppendingPathComponent:@"mc_overrides.json"]
-                    options:NSDataWritingAtomic
-                      error:error];
+
+    NSURL *dir = self.userDataDir;
+    NSFileManager *fm = NSFileManager.defaultManager;
+    [fm createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSURL *target = [dir URLByAppendingPathComponent:@"mc_overrides.json"];
+    BOOL ok = [data writeToURL:target options:NSDataWritingAtomic error:error];
+    if (!ok) return NO;
+
+    // Mirror to the live manager root when it differs, so the OEM reader always
+    // finds the file even if userDataDir resolved via a secondary candidate.
+    NSURL *managerRoot = SCIMCManagerContainerRoot();
+    if (managerRoot && ![dir.URLByDeletingLastPathComponent isEqual:managerRoot]) {
+        NSString *folder = dir.lastPathComponent;
+        NSURL *mirrorDir = [managerRoot URLByAppendingPathComponent:folder];
+        [fm createDirectoryAtURL:mirrorDir withIntermediateDirectories:YES attributes:nil error:nil];
+        [data writeToURL:[mirrorDir URLByAppendingPathComponent:@"mc_overrides.json"]
+                 options:NSDataWritingAtomic
+                   error:nil];
+    }
+    return YES;
 }
 
 - (BOOL)deployBundledMappingOverwrite:(NSError **)error {
     NSData *data = self.bundledMappingData;
     if (!data) {
         if (error) *error = [NSError errorWithDomain:@"SCIMC" code:404 userInfo:@{
-            NSLocalizedDescriptionKey: @"bundled id_name_mapping (.json/.bin) not in RyukGram.bundle"
+            NSLocalizedDescriptionKey: @"bundled id_name_mapping (.json/.bin) not in RyukGram.bundle and no embedded __idmap section"
         }];
         return NO;
     }
-    BOOL success = [data writeToURL:[self.userDataDir URLByAppendingPathComponent:@"id_name_mapping.json"]
+    NSURL *dir = self.userDataDir;
+    [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    BOOL success = [data writeToURL:[dir URLByAppendingPathComponent:@"id_name_mapping.json"]
                             options:NSDataWritingAtomic
                               error:error];
     [self reload];
@@ -613,6 +652,9 @@ static NSURL *SCIMCManagerContainerRoot(void) {
     UIAction *deploy = [UIAction actionWithTitle:@"Atualizar mapeamento" image:[UIImage systemImageNamed:@"arrow.down.doc"] identifier:nil handler:^(__unused UIAction *action) {
         [weakSelf deployMapping];
     }];
+    UIAction *exportOverrides = [UIAction actionWithTitle:@"Exportar mc_overrides.json" image:[UIImage systemImageNamed:@"square.and.arrow.up"] identifier:nil handler:^(__unused UIAction *action) {
+        [weakSelf exportOverrides];
+    }];
     UIAction *info = [UIAction actionWithTitle:@"Informações" image:[UIImage systemImageNamed:@"info.circle"] identifier:nil handler:^(__unused UIAction *action) {
         [weakSelf showInfo];
     }];
@@ -620,7 +662,7 @@ static NSURL *SCIMCManagerContainerRoot(void) {
         [weakSelf runLiveProbe];
     }];
     UIBarButtonItem *more = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis.circle"] style:UIBarButtonItemStylePlain target:nil action:nil];
-    more.menu = [UIMenu menuWithTitle:[NSString stringWithFormat:@"Live wiring: %@", [SCIMCLiveApply wiringStatus]] children:@[preset, deploy, liveProbe, info]];
+    more.menu = [UIMenu menuWithTitle:[NSString stringWithFormat:@"Live wiring: %@", [SCIMCLiveApply wiringStatus]] children:@[preset, deploy, exportOverrides, liveProbe, info]];
     self.navigationItem.rightBarButtonItem = more;
 }
 
@@ -692,7 +734,7 @@ static NSURL *SCIMCManagerContainerRoot(void) {
 
 - (void)showInfo {
     SCIMCOverrideStore *store = SCIMCOverrideStore.shared;
-    NSString *message = [NSString stringWithFormat:@"Data dir:\n%@\n\nConfigs: %lu", store.userDataDir.path, (unsigned long)store.configIDs.count];
+    NSString *message = [NSString stringWithFormat:@"Data dir:\n%@\n\nConfigs: %lu\n\n(O mapeamento só é lido do container; gere-o via Dev → Config name mapping ou coloque o arquivo manualmente.)", store.userDataDir.path, (unsigned long)store.configIDs.count];
     [self showAlertTitle:@"MobileConfig" message:message];
 }
 
@@ -708,7 +750,20 @@ static NSURL *SCIMCManagerContainerRoot(void) {
     NSError *error = nil;
     BOOL success = [SCIMCOverrideStore.shared deployBundledMappingOverwrite:&error];
     [self refreshRows];
-    [self showAlertTitle:nil message:success ? @"Mapeamento atualizado." : error.localizedDescription];
+    [self showAlertTitle:nil message:success ? @"Mapeamento atualizado (escrito no container)." : error.localizedDescription];
+}
+
+- (void)exportOverrides {
+    NSURL *url = [SCIMCOverrideStore.shared.userDataDir URLByAppendingPathComponent:@"mc_overrides.json"];
+    if (![NSFileManager.defaultManager fileExistsAtPath:url.path]) {
+        [self showAlertTitle:nil message:@"mc_overrides.json ainda não existe. Altere algum parâmetro primeiro para gerar o arquivo."];
+        return;
+    }
+    UIActivityViewController *sheet = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+        sheet.popoverPresentationController.barButtonItem = self.navigationItem.rightBarButtonItem;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)showAlertTitle:(nullable NSString *)title message:(NSString *)message {
