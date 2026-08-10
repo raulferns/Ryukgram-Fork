@@ -1356,15 +1356,21 @@ static char kSCICSymbolGroupPayloadKey;
 - (void)rebuildSections {
     if (!_allSymbols) return;
     NSArray *tokens = [self queryTokens];
-    NSUInteger limit = tokens.count ? 1200 : 420;
+    // Real-time browser: no curated allow-list gate below, so the cap is the
+    // only bound. Kept high enough to show the full live boolean surface;
+    // the image/kind segments and the search box narrow it for usability.
+    NSUInteger limit = tokens.count ? 4000 : 20000;
     NSUInteger shown = 0;
     NSMutableArray<NSString *> *order = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSMutableArray<SCICSymbolEntry *> *> *buckets = [NSMutableDictionary dictionary];
 
     for (SCICSymbolEntry *e in _allSymbols) {
         if (![self entryMatchesMode:e]) continue;
-        if (tokens.count) { if (![self entry:e matchesTokens:tokens]) continue; }
-        else if (![self entryMatchesDefaultFilters:e]) continue;
+        if (tokens.count && ![self entry:e matchesTokens:tokens]) continue;
+        // No pre-baked token allow-list. With an empty query every entry that
+        // passes the mode (live ObjC BOOL getters, C funcs, DATA params, Swift)
+        // for Instagram + FBSharedFramework is shown in real time. Persisted
+        // overrides still surface because they pass entryMatchesMode: too.
         if (shown++ >= limit) break;
 
         NSString *entity = [self entityKeyForEntry:e] ?: @"Runtime";
