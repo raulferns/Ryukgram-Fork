@@ -204,6 +204,7 @@ static id SCI_SafeBugMenuLegacy(
             source:@"InternalGlobalSafe Bug Reporter initializer"];
     }
 
+    SCIMCLearnScopeEnter();
     id result = orig_SafeBugMenuLegacy
         ? orig_SafeBugMenuLegacy(
             self, _cmd, deviceSession, userSession, reliabilityLogging,
@@ -213,6 +214,7 @@ static id SCI_SafeBugMenuLegacy(
         : nil;
     SCIApplyBugMenuState(result, NO);
     SCICaptureDogfoodDependencies(result);
+    SCIMCLearnScopeExit();
     return result;
 }
 
@@ -249,6 +251,7 @@ static id SCI_SafeBugMenuCurrent(
             source:@"InternalGlobalSafe Bug Reporter initializer"];
     }
 
+    SCIMCLearnScopeEnter();
     id result = orig_SafeBugMenuCurrent
         ? orig_SafeBugMenuCurrent(
             self, _cmd, deviceSession, userSession, reliabilityLogging,
@@ -259,5 +262,6 @@ static id SCI_SafeBugMenuCurrent(
         : nil;
     SCIApplyBugMenuState(result, NO);
     SCICaptureDogfoodDependencies(result);
+    SCIMCLearnScopeExit();
     return result;
 }

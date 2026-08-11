@@ -61,6 +61,47 @@ to. `entryMatchesDefaultFilters:` / `SCICDefaultFiltersForMode` are left
 defined (unused) so `SCIUnifiedRuntimeBrowserCompat.m`, which hooks that
 selector reflectively, still resolves — its widening simply becomes moot.
 
+## Build fix — Logos colon-counting bug with inline ternary bodies
+
+First submission failed CI: `SCIEmployeeConsumers.x:77: error: Invalid argument
+structure in %orig`. Root cause, confirmed by running the actual
+`theos/vendor/logos` preprocessor (not guessed): when a method's signature and
+body are on the **same line** and the body contains a ternary (`cond ? a : b`),
+Logos' colon-counting selector-arity parser picks up the ternary's `:` as an
+extra selector argument separator, so the argument count it expects for
+`%orig(...)` no longer matches the real selector. Reproduced in isolation with
+a 3-line file:
+
+```objc
+%hook FBWKWebView
+- (void)setIsEmployee:(BOOL)value { %orig(value ? YES : value); }
+%end
+```
+
+→ identical error. Moving the body onto its own line fixes it:
+
+```objc
+%hook FBWKWebView
+- (void)setIsEmployee:(BOOL)value {
+    %orig(value ? YES : value);
+}
+%end
+```
+
+The four `SCIEmployeeConsumersInitArgs` hooks were already written this way and
+were never affected; only the four single-line `SCIEmployeeConsumersKnownObjC`
+bodies (`IGFacebookUserInfo`, `IGAdPlatformLogger_objc` ×2,
+`FBWKWebView`, `FBWKWebViewDelegateAdaptor`) needed reformatting. The fixed
+file was verified by running it through the real Logos preprocessor end to
+end: zero errors, and every expected `MSHookMessageEx(...)` call site
+(`isEmployee`, `setIsEmployee:`, and all four init selectors) appears in the
+generated output with the correct argument count.
+
+Worth a project-wide sweep: any other `.x` file with a `%hook`/method body
+sharing one line with a ternary inside `%orig(...)` (or inside the return
+expression before a bare `%orig`) is exposed to the same failure the moment
+its content changes enough to re-trigger Logos' parse path.
+
 ## MobileConfig param IDs (still open)
 
 Unchanged from the prior note: the two hardcoded IDs in `part00.inc`

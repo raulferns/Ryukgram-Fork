@@ -1,21 +1,28 @@
 static void SCI_SafeBugMenuViewDidLoad(id self, SEL _cmd) {
+    // Learn scope: every mc_bool_param_t read while the internal-settings menu
+    // builds is, by construction, one this surface depends on. Observation
+    // only — see SCIMCParamAutoResolve.h.
+    SCIMCLearnScopeEnter();
     SCIApplyBugMenuState(self, NO);
     if (orig_SafeBugMenuViewDidLoad) {
         orig_SafeBugMenuViewDidLoad(self, _cmd);
     }
     SCIApplyBugMenuState(self, YES);
     SCICaptureDogfoodDependencies(self);
+    SCIMCLearnScopeExit();
 }
 
 static void SCI_SafeBugMenuViewDidAppear(
     id self, SEL _cmd, BOOL animated
 ) {
+    SCIMCLearnScopeEnter();
     SCIApplyBugMenuState(self, NO);
     if (orig_SafeBugMenuViewDidAppear) {
         orig_SafeBugMenuViewDidAppear(self, _cmd, animated);
     }
     SCIApplyBugMenuState(self, YES);
     SCICaptureDogfoodDependencies(self);
+    SCIMCLearnScopeExit();
 }
 
 static void SCI_SafeBugMenuDidSelect(

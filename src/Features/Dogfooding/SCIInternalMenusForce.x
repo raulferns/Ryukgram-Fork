@@ -2,7 +2,7 @@
 //
 // This compatibility surface is post-launch/manual by design. It no longer
 // installs constant, irreversible identity IMPs. Employee identity delegates to
-// SCIEmployeeInternal, while the two local menu getters keep their original IMP
+// SCIEmployeeConsumers, while the two local menu getters keep their original IMP
 // and read the persisted preference live.
 
 #import <Foundation/Foundation.h>

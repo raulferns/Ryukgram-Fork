@@ -11,7 +11,7 @@
 //   ou seja: [<MobileConfigManager> getBool: field0]. Seletor confirmado
 //   = "getBool:" (selref 0x10F85D360). Isso é a camada de MobileConfig da
 //   SESSÃO — independente dos getters ObjC -isEmployee (downstream) que o
-//   SCIEmployeeInternal força. Por isso forçar isEmployee nunca mudou o acesso.
+//   SCIEmployeeConsumers força. Por isso forçar isEmployee nunca mudou o acesso.
 //
 //   getBool: é implementado por classes ObjC do FBSharedFramework
 //   (IG/FBMobileConfigUserSessionContextManager, ...ContextManager) -> hookável

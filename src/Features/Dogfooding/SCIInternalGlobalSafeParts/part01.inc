@@ -11,11 +11,29 @@ static BOOL SCIDogfoodAssistantPayloadAvailable(void) {
 
 static BOOL SCIShouldForceMCParam(SCIMCBoolParam param) {
     if (!SCIEmployeeInternalMasterOn()) return NO;
-    if (param.raw == kSCIEmployeeOrTestUserMC) return YES;
-    if (param.raw == kSCIDogfoodingAssistantMC) {
+
+    // Register the compiled-in seeds once; they remain usable only while they
+    // still match this build. Learning supersedes them without needing an edit.
+    static dispatch_once_t seedOnce;
+    dispatch_once(&seedOnce, ^{
+        SCIMCRegisterSeedParam(kSCIEmployeeOrTestUserMC, NO);
+        SCIMCRegisterSeedParam(kSCIDogfoodingAssistantMC, YES);
+    });
+
+    // Observation only — records the ID when we are executing inside the
+    // internal-settings / bug-report path, and does nothing otherwise.
+    SCIMCNoteObservedParam(param.raw);
+
+    if (!SCIMCShouldForceLearnedParam(param.raw)) return NO;
+
+    // The dogfooding-assistant parameter must still pass the XPlugins payload
+    // check: forcing the row visible without its socket provider produced the
+    // "blocked: XPlugins socket provider is empty" dead end (see part03).
+    if (param.raw == kSCIDogfoodingAssistantMC ||
+        SCIMCLearnedParamRequiresDogfoodPayload(param.raw)) {
         return SCIDogfoodAssistantPayloadAvailable();
     }
-    return NO;
+    return YES;
 }
 
 static BOOL (*orig_MCGetBool)(id, SEL, SCIMCBoolParam) = NULL;

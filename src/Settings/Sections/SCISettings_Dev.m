@@ -106,7 +106,7 @@ static SCISetting *SCITier2EmployeeInternalSwitch(void) {
 	// (CODESIGNING / Invalid Page). Disassembly also proved that thunk never
 	// reaches the imported EasyGating evaluator, so a fishhook could not cover it
 	// either. The only sideload-safe surface is the ObjC identity getters, which
-	// SCIEmployeeInternal.x swizzles via MSHookMessageEx (__DATA, never __TEXT).
+	// SCIEmployeeConsumers.x swizzles via MSHookMessageEx (__DATA, never __TEXT).
 	return [SCISetting switchCellWithTitle:SCILocalized(@"Tier-2")
 		subtitle:SCILocalized(@"Single master: forces employee/internal ObjC identity + GraphQL dogfooding eligibility + bypasses the production lockout screen. Sideload-safe (__DATA swizzle only). Restart for cached checks.")
 		value:^BOOL {

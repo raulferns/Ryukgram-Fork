@@ -797,11 +797,78 @@ static NSString *SCICHookPlanForName(NSString *name, BOOL function, NSString *se
     return @"List/diagnose until ABI/callers are known";
 }
 
+// SCI-FIX 2026-08-10 (browser signal/noise):
+// The old gate was a short per-mode ALLOW-list of topic tokens ("Employee",
+// "Dogfood", …) plus literal param descriptor names like "ig_is_employee" —
+// which do not exist in this build at all (0 occurrences as export, import or
+// raw string, in both images), so the DataParams default matched almost
+// nothing. Dropping the gate entirely swung the other way: every zero/one-arg
+// BOOL-ish selector in both images, ~29,240 entries.
+//
+// An allow-list is the wrong tool: plenty of hookable, genuinely useful gates
+// have nothing to do with dogfooding and would be hidden by a topic filter.
+// What actually needs removing is STRUCTURAL noise — selectors that are
+// mechanically present on hundreds of unrelated classes and are never a
+// feature gate. Measured over both images, the 40 most repeated BOOL
+// selectors account for 22.7% of all entries and are entirely of that kind:
+//   isEqualToDiffableObject: (1490 classes), isEqual: (931),
+//   quick_flexibilityFor: (734 — a synthesized layout-priority helper),
+//   canRespondToGesture: (417), prefersNavigationBarHidden (321),
+//   gestureRecognizer*/textField*/textView* delegate callbacks, and plain
+//   UIKit state properties (isHidden/isSelected/isEnabled/isHighlighted…).
+//
+// So this is an EXCLUDE-list, not an allow-list: anything not matched here is
+// shown. A BOOL gate with an unfamiliar name still surfaces in Signal view.
+// The "All" segment disables even this, so nothing is ever unreachable.
+static NSSet<NSString *> *SCICStructuralNoiseSelectors(void) {
+    static NSSet<NSString *> *set = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        set = [NSSet setWithArray:@[
+            // equality / diffing / hashing
+            @"isEqual:", @"isEqualToDiffableObject:", @"isEqualToString:", @"makeImmutable",
+            // synthesized layout helper (734 unrelated classes)
+            @"quick_flexibilityFor:",
+            // UIKit/scroll/gesture/text delegate protocol callbacks
+            @"canRespondToGesture:", @"gestureRecognizerShouldBegin:",
+            @"gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:",
+            @"gestureRecognizer:shouldReceiveTouch:",
+            @"gestureRecognizer:shouldBeRequiredToFailByGestureRecognizer:",
+            @"gestureRecognizer:shouldRequireFailureOfGestureRecognizer:",
+            @"textFieldShouldReturn:", @"textFieldShouldBeginEditing:",
+            @"textFieldShouldEndEditing:", @"textFieldShouldClear:",
+            @"textField:shouldChangeCharactersInRange:replacementString:",
+            @"textViewShouldBeginEditing:", @"textViewShouldEndEditing:",
+            @"textView:shouldChangeTextInRange:replacementText:",
+            @"searchBarShouldBeginEditing:", @"searchBarShouldEndEditing:",
+            @"scrollViewShouldScrollToTop:",
+            // first responder / accessibility plumbing
+            @"becomeFirstResponder", @"resignFirstResponder", @"canBecomeFirstResponder",
+            @"canResignFirstResponder", @"isFirstResponder",
+            @"isAccessibilityElement", @"accessibilityActivate", @"accessibilityPerformEscape",
+            @"accessibilityPerformMagicTap", @"accessibilityScroll:",
+            // plain UIKit view/control state
+            @"isHidden", @"isSelected", @"isEnabled", @"isHighlighted", @"enabled",
+            @"disabled", @"selected", @"userInteractionEnabled", @"isOpaque",
+            @"clipsToBounds", @"isUserInteractionEnabled", @"isFocused",
+            @"canBecomeFocused", @"prefersStatusBarHidden",
+            @"prefersNavigationBarHidden", @"prefersNavigationBarDividerHidden",
+            @"prefersHomeIndicatorAutoHidden", @"shouldAutorotate",
+            // trivial media/loading state
+            @"isLoading", @"isPlaying", @"isMuted", @"isActive", @"isPaused",
+        ]];
+    });
+    return set;
+}
+
+// Kept for the runtime-browser compatibility shim
+// (SCIUnifiedRuntimeBrowserCompat.m hooks entryMatchesDefaultFilters: and
+// widens it with experiment keywords; that still works and now widens a
+// noise-exclusion result instead of a topic allow-list).
+__attribute__((unused))
 static NSArray<NSString *> *SCICDefaultFiltersForMode(SCICSymbolsBrowserMode mode) {
-    if (mode == SCICSymbolsBrowserModeObjCMethods) return @[@"MobileConfig", @"Gating", @"Employee", @"Dogfood", @"Internal", @"Debug", @"Plus", @"IGDS", @"Launcher", @"SUBSBenefit"];
-    if (mode == SCICSymbolsBrowserModeDataParams) return @[@"ig_is_employee", @"ig_user_session", @"xav_switcher", @"mc_team", @"MapFields", @"MapSchema", @"OpenSettings", @"DeveloperAccount", @"FeatureFlags"];
-    if (mode == SCICSymbolsBrowserModeSwiftDisassembly) return @[@"$s", @"_Tt", @"ConsumerSubs", @"SUBSBenefit", @"MobileConfig", @"Dogfood", @"Eligibility", @"FeatureFlags"];
-    return @[@"MobileConfig", @"EasyGating", @"MSGC", @"MCI", @"TALEvents", @"RegisterMappings", @"UpdateConfigs", @"SetConfigOverrides", @"InternalApps", @"Minos"];
+    (void)mode;
+    return @[];
 }
 
 
@@ -883,7 +950,13 @@ static NSArray<SCICSymbolEntry *> *SCICEnumerateObjCEntriesForImage(SCISymbolIma
     for (SCISymbolClass *cls in classes) {
         for (SCISymbolGetter *g in cls.getters ?: @[]) {
             SCICSymbolEntry *e = [SCICSymbolEntry new];
-            e.name = [NSString stringWithFormat:@"%@%@#%@", g.isClassMethod ? @"+" : @"", cls.className ?: @"", g.selectorName ?: @""];
+            // "+" = class method (hook the metaclass), "-" = instance method.
+            // Previously instance methods carried NO prefix at all, which made
+            // the two indistinguishable at a glance; both are explicit now.
+            // NOTE: the "+"/"" form is also the persisted override key format
+            // (SCIOverrideKey in SCISymbolBrowserEngine.m), so the display
+            // prefix is derived separately below and never changes that key.
+            e.name = [NSString stringWithFormat:@"%@%@#%@", g.isClassMethod ? @"+" : @"-", cls.className ?: @"", g.selectorName ?: @""];
             e.image = imgName;
             e.section = @"ObjC runtime";
             e.kind = @"ObjC BOOL getter";
@@ -903,10 +976,79 @@ static NSArray<SCICSymbolEntry *> *SCICEnumerateObjCEntriesForImage(SCISymbolIma
     return out.copy;
 }
 
+// SCI-FIX 2026-08-10 (C mode showed nothing resolvable/hookable):
+// SCICEnumerateImageSymbolsAtIndex only keeps nlist entries where
+// (n_type & N_TYPE) == N_SECT, i.e. symbols DEFINED in that image. Measured
+// against the shipped pair, the Instagram executable's symtab holds 39,228
+// nlist entries of which only 5 are defined — the other 39,223 are N_UNDF
+// imports (FBSharedFramework contributes 24,136 defined + 10,977 imports).
+// So in C mode the exec contributed essentially nothing, and the few rows
+// that did appear could not resolve an address or an ABI.
+//
+// Those imports are exactly the fishhook-able surface (EasyGating*, MSGC*,
+// MCI*, etc. — the very symbols the Dev menu's "Current C experiment gates"
+// section already forces). The file could already walk them
+// (SCICCollectImportedSymbolNamesForImage) but only used the result as a
+// boolean flag on symbols sourced from the defined-symbol walk, so an import
+// with no defined counterpart never became a row at all.
+//
+// This enumerates imports as first-class entries: the bound target is
+// resolved live through dlsym (which searches every loaded image, so an
+// import defined in another dylib resolves to a real, callable address) and
+// the entry is marked as GOT-rebindable rather than swizzle-able.
+static void SCICEnumerateImportEntriesForImage(uint32_t imageIndex, NSMutableArray<SCICSymbolEntry *> *out) {
+    const char *imageName = _dyld_get_image_name(imageIndex);
+    if (!imageName) return;
+    NSString *path = [NSString stringWithUTF8String:imageName];
+    if (!SCICIsImageWanted(path)) return;
+
+    NSMutableSet<NSString *> *imports = [NSMutableSet set];
+    SCICCollectImportedSymbolNamesForImage(imageIndex, imports);
+    if (!imports.count) return;
+
+    NSString *shortName = SCICImageShortName(path);
+    for (NSString *name in imports) {
+        if (!name.length) continue;
+        if ([name hasPrefix:@"OBJC_"] || [name hasPrefix:@"\001"]) continue;
+
+        void *resolved = dlsym(RTLD_DEFAULT, name.UTF8String);
+        if (!resolved) resolved = dlsym(RTLD_DEFAULT, [[@"_" stringByAppendingString:name] UTF8String]);
+
+        SCICSymbolEntry *e = [SCICSymbolEntry new];
+        e.name = name;
+        e.image = shortName;
+        e.section = @"import (GOT/bind)";
+        e.function = YES;          // imports browsed here are call targets
+        e.data = NO;
+        e.swiftLike = SCICNameLooksSwiftOrCXX(name);
+        e.address = (uintptr_t)resolved;
+        e.dataSize = 0;
+        e.kind = e.swiftLike ? @"Swift/C++ import" : @"C import (fishhook)";
+        e.abi = SCICABIForName(name, YES, @"import");
+        e.hookPlan = SCICHookPlanForName(name, YES, @"import");
+        e.resolvable = (resolved != NULL);
+        e.hasBindPointer = YES;    // by definition: it has a GOT/bind slot here
+        [out addObject:e];
+    }
+}
+
 static NSArray<SCICSymbolEntry *> *SCICEnumerateInstagramAndFBSharedSymbols(void) {
     NSMutableArray *out = [NSMutableArray array];
     uint32_t count = _dyld_image_count();
     for (uint32_t i = 0; i < count; i++) SCICEnumerateImageSymbolsAtIndex(i, out);
+    // Imports second, de-duplicated against the defined-symbol pass below.
+    NSMutableArray *importEntries = [NSMutableArray array];
+    for (uint32_t i = 0; i < count; i++) SCICEnumerateImportEntriesForImage(i, importEntries);
+    NSMutableSet<NSString *> *definedKeys = [NSMutableSet set];
+    for (SCICSymbolEntry *e in out) {
+        if (e.name.length) [definedKeys addObject:[NSString stringWithFormat:@"%@|%@", e.image ?: @"", e.name]];
+    }
+    for (SCICSymbolEntry *e in importEntries) {
+        NSString *key = [NSString stringWithFormat:@"%@|%@", e.image ?: @"", e.name ?: @""];
+        if ([definedKeys containsObject:key]) continue;
+        [definedKeys addObject:key];
+        [out addObject:e];
+    }
     [out sortUsingComparator:^NSComparisonResult(SCICSymbolEntry *a, SCICSymbolEntry *b) {
         NSComparisonResult r = [a.image compare:b.image options:NSCaseInsensitiveSearch];
         return r == NSOrderedSame ? [a.name compare:b.name options:NSCaseInsensitiveSearch] : r;
@@ -928,6 +1070,7 @@ static char kSCICSymbolGroupPayloadKey;
     UIActivityIndicatorView *_spinner;
     UISegmentedControl *_imageSegment;
     UISegmentedControl *_kindSegment;
+    UISegmentedControl *_relevanceSegment;
 }
 
 - (instancetype)init { return [self initWithMode:SCICSymbolsBrowserModeObjCMethods]; }
@@ -977,12 +1120,21 @@ static char kSCICSymbolGroupPayloadKey;
     [_kindSegment addTarget:self action:@selector(unifiedTabChanged:) forControlEvents:UIControlEventValueChanged];
     SCIUIKit26ConfigureSegmentedControl(_kindSegment);
 
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_imageSegment, _kindSegment]];
+    // Signal (structural noise excluded) vs All (literally every live entry).
+    // Signal is NOT topic-filtered: any hookable gate shows, dogfood-related
+    // or not — only mechanically-repeated UIKit/equality/gesture selectors are
+    // dropped. Search always bypasses both; this controls the EMPTY-query view.
+    _relevanceSegment = [[UISegmentedControl alloc] initWithItems:@[@"Signal", @"All"]];
+    _relevanceSegment.selectedSegmentIndex = 0;
+    [_relevanceSegment addTarget:self action:@selector(unifiedTabChanged:) forControlEvents:UIControlEventValueChanged];
+    SCIUIKit26ConfigureSegmentedControl(_relevanceSegment);
+
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_imageSegment, _kindSegment, _relevanceSegment]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 8.0;
     stack.layoutMargins = UIEdgeInsetsMake(8, 16, 8, 16);
     stack.layoutMarginsRelativeArrangement = YES;
-    UIView *wrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 92)];
+    UIView *wrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 138)];
     wrap.backgroundColor = UIColor.clearColor;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     [wrap addSubview:stack];
@@ -1043,10 +1195,20 @@ static char kSCICSymbolGroupPayloadKey;
 }
 
 - (BOOL)entryMatchesDefaultFilters:(SCICSymbolEntry *)e {
+    // Anything the user has already acted on always stays visible.
     if (e.objcSelectorName.length) { NSString *k=[NSString stringWithFormat:@"%@%@", e.objcClassMethod?@"+":@"", [NSString stringWithFormat:@"%@#%@", e.objcClassName?:@"", e.objcSelectorName?:@""]]; if ([SCISymbolBrowserEngine overrideForKey:k] != nil) return YES; }
     if ([SCICRuntimePatchResolver persistedPatchForSymbol:e.name] != nil || [SCICSymbolStub forceForSymbol:e.name] != nil || [SCICSymbolStub typedForceForSymbol:e.name] != nil || [SCICSymbolStub forceForParamDescriptorSymbol:e.name] != nil || [SCICSymbolStub observeForParamDescriptorSymbol:e.name] || [SCICSymbolStub observeForSymbol:e.name] || [SCICSymbolStub hookInstalledForSymbol:e.name]) return YES;
-    for (NSString *f in SCICDefaultFiltersForMode(_mode)) if ([e.name.lowercaseString containsString:f.lowercaseString] || [e.abi.lowercaseString containsString:f.lowercaseString]) return YES;
-    return NO;
+
+    // Signal view = exclude structural noise, keep everything else. This is
+    // deliberately NOT topic-based: a hookable gate unrelated to dogfooding
+    // still shows. See SCICStructuralNoiseSelectors() for the rationale and
+    // the measured selector frequencies behind each exclusion.
+    if (e.objcSelectorName.length) {
+        if ([SCICStructuralNoiseSelectors() containsObject:e.objcSelectorName]) return NO;
+        // Swift protocol-witness / accessor thunks carry no independent gate.
+        if ([e.objcSelectorName hasPrefix:@"__"]) return NO;
+    }
+    return YES;
 }
 
 - (NSString *)subtitleForEntry:(SCICSymbolEntry *)e {
@@ -1356,21 +1518,23 @@ static char kSCICSymbolGroupPayloadKey;
 - (void)rebuildSections {
     if (!_allSymbols) return;
     NSArray *tokens = [self queryTokens];
-    // Real-time browser: no curated allow-list gate below, so the cap is the
-    // only bound. Kept high enough to show the full live boolean surface;
-    // the image/kind segments and the search box narrow it for usability.
-    NSUInteger limit = tokens.count ? 4000 : 20000;
+    BOOL showAll = tokens.count > 0 || _relevanceSegment.selectedSegmentIndex == 1;
+    // Signal view drops ~23% of entries (the measured structural-noise share)
+    // and is still large by design — nothing topical is hidden. Both views are
+    // capped high enough to reach the whole live surface (~29,240 entries).
+    NSUInteger limit = 20000;
     NSUInteger shown = 0;
     NSMutableArray<NSString *> *order = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSMutableArray<SCICSymbolEntry *> *> *buckets = [NSMutableDictionary dictionary];
 
     for (SCICSymbolEntry *e in _allSymbols) {
         if (![self entryMatchesMode:e]) continue;
-        if (tokens.count && ![self entry:e matchesTokens:tokens]) continue;
-        // No pre-baked token allow-list. With an empty query every entry that
-        // passes the mode (live ObjC BOOL getters, C funcs, DATA params, Swift)
-        // for Instagram + FBSharedFramework is shown in real time. Persisted
-        // overrides still surface because they pass entryMatchesMode: too.
+        if (tokens.count) {
+            if (![self entry:e matchesTokens:tokens]) continue;
+        } else if (!showAll && ![self entryMatchesDefaultFilters:e]) continue;
+        // Signal view: structural-noise exclusion only (see
+        // entryMatchesDefaultFilters:). Switch to "All" or type a search to
+        // include even the mechanical selectors.
         if (shown++ >= limit) break;
 
         NSString *entity = [self entityKeyForEntry:e] ?: @"Runtime";
@@ -1459,10 +1623,17 @@ static char kSCICSymbolGroupPayloadKey;
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *cell = [super tableView:tableView cellForRowAtIndexPath:indexPath];
     UIListContentConfiguration *cfg = (UIListContentConfiguration *)cell.contentConfiguration;
-    cfg.textProperties.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightRegular];
-    cfg.textProperties.numberOfLines = 2;
-    cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightRegular];
-    cfg.secondaryTextProperties.numberOfLines = 3;
+    // SCI-FIX 2026-08-10 (ellipsis truncation on long entries): numberOfLines
+    // was hard-capped at 2 (title) / 3 (subtitle) even though the base list's
+    // rowHeight is already UITableViewAutomaticDimension — the row COULD grow,
+    // but each label still clipped at its fixed line cap first. Class+selector
+    // names in this browser routinely run 70-90+ characters and the subtitle
+    // packs up to five " · "-joined diagnostic clauses, so the cap truncated
+    // constantly. 0 = unlimited lines; the row grows to fit.
+    cfg.textProperties.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
+    cfg.textProperties.numberOfLines = 0;
+    cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightRegular];
+    cfg.secondaryTextProperties.numberOfLines = 0;
     cell.contentConfiguration = cfg;
     if (cell.accessoryView) cell.accessoryType = UITableViewCellAccessoryNone;
     else cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;

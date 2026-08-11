@@ -40,6 +40,15 @@ typedef struct {
     uint64_t raw;
 } SCIMCBoolParam;
 
+// SCI-FIX 2026-08-10: these two are now SEEDS, not authoritative constants.
+// mc_bool_param_t values are assigned at runtime — neither ID appears anywhere
+// static in the shipped build (0 hits as an 8-byte constant-pool literal and 0
+// as a movz/movk immediate, in both Instagram and FBSharedFramework), so they
+// cannot be verified ahead of time and silently stop matching whenever the app
+// reshuffles them, making this whole force layer a no-op with no visible error.
+// SCIMCParamAutoResolve learns the correct IDs for the running build by
+// observing which params the internal-settings / bug-report path reads (see
+// SCIMCParamAutoResolve.h). These stay as a fallback for as long as they hold.
 static const uint64_t kSCIEmployeeOrTestUserMC = 0x008100A700000134ULL;
 static const uint64_t kSCIDogfoodingAssistantMC = 0x00810A8A000139D6ULL;
 static const uint32_t kSCIInternalOnlyPluginHash = 0x64327C01U;
