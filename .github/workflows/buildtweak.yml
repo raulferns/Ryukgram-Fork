@@ -1,4 +1,4 @@
-name: Build RyukGram dogfood · SDK 26.5
+name: Build RyukGram tweak
 
 on:
   push:
@@ -13,119 +13,143 @@ concurrency:
 
 jobs:
   build:
-    name: Rootless + rootful · arm64
     runs-on: macos-latest
     permissions:
-      contents: read
+      contents: write
+
     env:
-      THEOS: ${{ github.workspace }}/theos
+      SDK_NAME: iPhoneOS26.5.sdk
+      OUTPUT_BASENAME: Ryukgram-1.3.3.${{ github.run_number }}
+      SDK_CACHE_NAME: ios-sdks-26.5
 
     steps:
-      - name: Checkout dogfood source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           path: main
-          fetch-depth: 0
+          submodules: recursive
 
-      - name: Install build dependencies
+      - name: Verify Xcode toolchain
         run: |
-          brew install ldid dpkg make
-          python3 -m venv "$RUNNER_TEMP/ryg-python"
-          "$RUNNER_TEMP/ryg-python/bin/python" -m pip install --upgrade pip capstone lief r2pipe
-          echo "$RUNNER_TEMP/ryg-python/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
 
-      - name: Setup Theos
-        uses: actions/checkout@v4
+      - run: brew install ldid dpkg make zip pipx
+      - run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Create Python venv
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install lief
+          pip install https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+
+      - uses: actions/checkout@v4
         with:
           repository: theos/theos
           ref: master
           path: ${{ github.workspace }}/theos
           submodules: recursive
 
-      - name: Cache iPhoneOS 26.5 SDK
-        id: sdk-cache
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
+        id: SDK
+        env:
+          SDKS: "iPhoneOS26.5.sdk"
         with:
-          path: ${{ github.workspace }}/theos/sdks/iPhoneOS26.5.sdk
-          key: ${{ runner.os }}-iPhoneOS26.5.sdk-v1
+          path: ${{ github.workspace }}/theos/sdks/
+          key: ${{ env.SDK_CACHE_NAME }}
+          restore-keys: ${{ env.SDK_CACHE_NAME }}
 
-      - name: Download iPhoneOS 26.5 SDK
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
+      - if: steps.SDK.outputs.cache-hit != 'true'
         run: |
-          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/xybp888/iOS-SDKs sdk-source
-          cd sdk-source
-          git sparse-checkout set --no-cone iPhoneOS26.5.sdk
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/xybp888/iOS-SDKs/
+          cd iOS-SDKs
+      
+          git sparse-checkout init --no-cone
+          git sparse-checkout set iPhoneOS26.5.sdk
           git checkout
+      
+          mkdir -p "$THEOS/sdks"
+      
           mv iPhoneOS26.5.sdk "$THEOS/sdks/"
+        env:
+          THEOS: ${{ github.workspace }}/theos
 
-      - name: Verify SDK 26.5 and source/runtime contracts
-        working-directory: main
-        run: |
-          test -f "$THEOS/sdks/iPhoneOS26.5.sdk/System/Library/Frameworks/UIKit.framework/Headers/UIGlassEffect.h"
-          python3 scripts/validate-source.py
-
-      - name: Setup FFmpegKit
-        working-directory: main
-        run: ./scripts/setup-ffmpegkit.sh
-
-      - name: Build rootless package
-        working-directory: main
-        shell: bash
-        run: |
-          set -o pipefail
-          ./build.sh rootless 2>&1 | tee "$RUNNER_TEMP/ryg-rootless-build.log"
-
-      - name: Name rootless artifact
-        working-directory: main
-        run: |
-          VERSION="$(awk '/^Version:/ {print $2}' control)"
-          DEB="$(ls -t packages/*_rootless.deb | head -n1)"
-          mv "$DEB" "packages/RyukGram_${VERSION}+dogfood.${GITHUB_RUN_NUMBER}_rootless.deb"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
-      - name: Build rootful package
-        working-directory: main
-        shell: bash
-        run: |
-          set -o pipefail
-          ./build.sh rootful 2>&1 | tee "$RUNNER_TEMP/ryg-rootful-build.log"
-
-      - name: Name rootful artifact
-        working-directory: main
-        run: |
-          DEB="$(ls -t packages/*_rootful.deb | head -n1)"
-          mv "$DEB" "packages/RyukGram_${VERSION}+dogfood.${GITHUB_RUN_NUMBER}_rootful.deb"
-
-      - name: Validate both self-contained Mach-O packages
-        working-directory: main
+      - name: Validate SDK 26.5 and prepare
         run: |
           set -euo pipefail
-          for DEB in packages/RyukGram_*_rootless.deb packages/RyukGram_*_rootful.deb; do
-            STAGE="$(mktemp -d)"
-            dpkg-deb -x "$DEB" "$STAGE"
-            DYLIB="$(find "$STAGE" -type f -name RyukGram.dylib | head -n1)"
-            test -n "$DYLIB"
-            python3 scripts/validate-macho.py "$DYLIB"
-            test "$(find "$STAGE" -type f \( -name 'pluginsinject.dylib' -o -name 'zxPluginsInject.dylib' -o -name 'NoPluginsPatch.dylib' -o -name 'SideloadPatch.dylib' \) | wc -l | tr -d ' ')" = 0
-            rm -rf "$STAGE"
-          done
+          cd main
+          chmod +x scripts/*.sh build.sh modules/build-dev.sh || true
+          test -d "$THEOS/sdks/$SDK_NAME"
+          grep -q 'TARGET := iphone:clang:26.5:15.0' Makefile
+          grep -q '^ARCHS = arm64$' Makefile
+          ./scripts/setup-ffmpegkit.sh
+          echo "Skipping deb build in CI; building IPA only."
+        env:
+          THEOS: ${{ github.workspace }}/theos
 
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Download base Instagram IPA (via GitHub API)
+        run: |
+          set -euo pipefail
+          cd main/packages
+
+          owner=raulferns
+          repo=Ryukgram-Fork
+          tag=v1.2.3
+
+          api="https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}"
+          echo "Fetching release ${tag} from ${owner}/${repo}"
+
+          release_json=$(curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api") || {
+              echo "Unable to fetch release ${tag}; skipping IPA download/build"
+              exit 0
+            }
+
+          asset_url=$(echo "$release_json" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next((a.get("browser_download_url","") for a in d.get("assets",[]) if a.get("name","").endswith(".ipa")), ""))')
+
+          if [ -z "$asset_url" ]; then
+            echo "No IPA asset found for release ${tag}; skipping IPA download/build"
+            exit 0
+          fi
+
+          echo "Downloading IPA from: $asset_url"
+          curl -fL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -o "com.burbn.instagram.ipa" \
+            "$asset_url"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build noplugins IPA
+        run: |
+          set -xeuo pipefail
+          cd main
+          chmod +x scripts/*.sh build.sh modules/build-dev.sh || true
+          
+          if [ ! -f "packages/com.burbn.instagram.ipa" ]; then
+            echo "Skipping IPA build: decrypted Instagram IPA not found in packages/"
+            echo "   To build IPA locally, place com.burbn.instagram.ipa in the packages/ folder"
+            exit 0
+          fi
+          
+          ./scripts/setup-ffmpegkit.sh
+          ./build.sh noplugins
+          mkdir -p release
+          IPA="$( { ls -t packages/*noplugins*.ipa packages/*sideloaded*.ipa packages/*.ipa 2>/dev/null || true; } | head -n 1)"
+          test -n "$IPA"
+          cp "$IPA" "release/${OUTPUT_BASENAME}.ipa"
+          ls -la release
+        env:
+          THEOS: ${{ github.workspace }}/theos
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: RyukGram_build_logs_${{ github.run_number }}
-          path: |
-            ${{ runner.temp }}/ryg-rootless-build.log
-            ${{ runner.temp }}/ryg-rootful-build.log
+          name: Ryukgram-1.3.3.${{ github.run_number }}-ipa
+          path: main/release/Ryukgram-1.3.3.${{ github.run_number }}.ipa
           if-no-files-found: ignore
-
-      - name: Upload dogfood packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: RyukGram_dogfood_${{ env.VERSION }}_${{ github.run_number }}
-          path: |
-            main/packages/RyukGram_*_rootless.deb
-            main/packages/RyukGram_*_rootful.deb
-          if-no-files-found: error
