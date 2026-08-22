@@ -3,16 +3,27 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
+#import <os/lock.h>
+#import <dlfcn.h>
 #include <string.h>
 
-// The Developer MobileConfig browser can create real overrides even when the
-// legacy ryg_metaconfig_enabled preference is off. On relaunch the old %ctor
-// returned before constructing RYGMobileConfig or installing its getter hooks.
-// This owner activates whenever a persisted mc_overrides.plist exists and owns
-// the exact getter IMPs after UIApplication becomes active.
+// Persistent MobileConfig getter owner.
+//
+// Critical runtime rule: Instagram evaluates MobileConfig getters thousands of
+// times while launching. The getter path therefore MUST be RAM-only. It must not
+// touch NSUserDefaults, disk, RYGMobileConfig.shared, Objective-C ivar lookup,
+// backtraces, or native override-table writes.
+//
+// This owner keeps a tiny canonical PID -> value snapshot in memory. Explicit
+// user mutations update that snapshot. The on-disk plist is read once when the
+// tweak loads; dyld callbacks only attempt exact hook installation and never
+// parse files or reapply the entire native table.
 
+static os_unfair_lock gRYGMCCacheLock = OS_UNFAIR_LOCK_INIT;
+static NSDictionary<NSNumber *, id> *gRYGMCCachedOverrides;
 static BOOL gRYGMCHookOwnerScheduled;
 static BOOL gRYGMCHookOwnerActive;
+static BOOL gRYGMCHookOwnerShouldRun;
 
 static IMP gRYGMCUpBool;
 static IMP gRYGMCUpBoolDef;
@@ -37,33 +48,72 @@ static unsigned long long RYGMCForceCanonicalPID(unsigned long long pid) {
     return (pid & 0x0000FFFFFFFFFFFFULL) | ((0x40ULL | type) << 48);
 }
 
-static NSDictionary<NSNumber *, id> *RYGMCOwnedOverrideDictionary(void) {
-    RYGMobileConfig *mobileConfig = RYGMobileConfig.shared;
-    Ivar ivar = class_getInstanceVariable(RYGMobileConfig.class, "_overrides");
-    id value = ivar ? object_getIvar(mobileConfig, ivar) : nil;
-    return [value isKindOfClass:NSDictionary.class] ? value : @{};
-}
-
-static id RYGMCOwnedOverride(unsigned long long pid) {
-    NSDictionary *overrides = RYGMCOwnedOverrideDictionary();
-    if (!overrides.count || !pid) return nil;
-    id value = overrides[@(RYGMCForceCanonicalPID(pid))];
-    if (value) return value;
-    return overrides[@(pid)];
-}
-
 static NSString *RYGMCOverridesStorePath(void) {
     NSString *support = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
+    if (!support.length) return nil;
     return [[support stringByAppendingPathComponent:@"RyukGram"] stringByAppendingPathComponent:@"mc_overrides.plist"];
 }
 
-static BOOL RYGMCHasPersistedOverrides(void) {
+static NSDictionary<NSNumber *, id> *RYGMCLoadDiskSnapshot(void) {
     NSDictionary *disk = [NSDictionary dictionaryWithContentsOfFile:RYGMCOverridesStorePath()];
-    return disk.count > 0;
+    if (![disk isKindOfClass:NSDictionary.class] || !disk.count) return @{};
+    NSMutableDictionary<NSNumber *, id> *snapshot = [NSMutableDictionary dictionaryWithCapacity:disk.count];
+    [disk enumerateKeysAndObjectsUsingBlock:^(id rawKey, id value, BOOL *stop) {
+        (void)stop;
+        if (![rawKey isKindOfClass:NSString.class]) return;
+        const char *digits = [(NSString *)rawKey UTF8String];
+        if (!digits || !*digits) return;
+        char *end = NULL;
+        unsigned long long pid = strtoull(digits, &end, 10);
+        if (!pid || end == digits || *end != '\0') return;
+        unsigned long long canonical = RYGMCForceCanonicalPID(pid);
+        unsigned int type = (unsigned int)((canonical >> 48) & 0x0fULL);
+        BOOL valid = type == 3 ? [value isKindOfClass:NSString.class] : [value isKindOfClass:NSNumber.class];
+        if (valid) snapshot[@(canonical)] = value;
+    }];
+    return snapshot.copy;
 }
 
-static BOOL RYGMCOwnerShouldRun(void) {
-    return [RYGUtils getBoolPref:@"ryg_metaconfig_enabled"] || RYGMCHasPersistedOverrides();
+static void RYGMCPublishSnapshot(NSDictionary<NSNumber *, id> *snapshot) {
+    os_unfair_lock_lock(&gRYGMCCacheLock);
+    gRYGMCCachedOverrides = snapshot.copy ?: @{};
+    gRYGMCHookOwnerShouldRun = gRYGMCCachedOverrides.count > 0 || [RYGUtils getBoolPref:@"ryg_metaconfig_enabled"];
+    os_unfair_lock_unlock(&gRYGMCCacheLock);
+}
+
+static void RYGMCCacheSet(unsigned long long pid, id value) {
+    if (!pid) return;
+    unsigned long long canonical = RYGMCForceCanonicalPID(pid);
+    os_unfair_lock_lock(&gRYGMCCacheLock);
+    NSMutableDictionary *next = [gRYGMCCachedOverrides mutableCopy] ?: [NSMutableDictionary dictionary];
+    if (value) next[@(canonical)] = value;
+    else [next removeObjectForKey:@(canonical)];
+    gRYGMCCachedOverrides = next.copy;
+    gRYGMCHookOwnerShouldRun = gRYGMCCachedOverrides.count > 0 || [RYGUtils getBoolPref:@"ryg_metaconfig_enabled"];
+    os_unfair_lock_unlock(&gRYGMCCacheLock);
+}
+
+static void RYGMCCacheClear(void) {
+    os_unfair_lock_lock(&gRYGMCCacheLock);
+    gRYGMCCachedOverrides = @{};
+    gRYGMCHookOwnerShouldRun = [RYGUtils getBoolPref:@"ryg_metaconfig_enabled"];
+    os_unfair_lock_unlock(&gRYGMCCacheLock);
+}
+
+static id RYGMCOwnedOverride(unsigned long long pid) {
+    if (!pid) return nil;
+    NSNumber *key = @(RYGMCForceCanonicalPID(pid));
+    os_unfair_lock_lock(&gRYGMCCacheLock);
+    id value = gRYGMCCachedOverrides[key];
+    os_unfair_lock_unlock(&gRYGMCCacheLock);
+    return value;
+}
+
+static BOOL RYGMCOwnerShouldRunFast(void) {
+    os_unfair_lock_lock(&gRYGMCCacheLock);
+    BOOL value = gRYGMCHookOwnerShouldRun;
+    os_unfair_lock_unlock(&gRYGMCCacheLock);
+    return value;
 }
 
 static const char *RYGMCUnqualified(const char *type) {
@@ -97,6 +147,14 @@ static BOOL RYGMCOwnerMethodMatches(Method method, char returnType, const char *
     return YES;
 }
 
+static BOOL RYGMCIMPBelongsToRyukGram(IMP imp) {
+    if (!imp) return NO;
+    Dl_info info = {0};
+    if (!dladdr((const void *)imp, &info) || !info.dli_fname) return NO;
+    NSString *name = [[NSString stringWithUTF8String:info.dli_fname] lastPathComponent].lowercaseString ?: @"";
+    return [name containsString:@"ryukgram"];
+}
+
 static BOOL RYGMCOwnerInstallOne(Class cls, NSString *selectorName, IMP replacement, IMP *upstream, char returnType, const char *arguments) {
     if (!cls || !selectorName.length || !replacement || !upstream) return NO;
     Method method = class_getInstanceMethod(cls, NSSelectorFromString(selectorName));
@@ -104,7 +162,12 @@ static BOOL RYGMCOwnerInstallOne(Class cls, NSString *selectorName, IMP replacem
     IMP current = method_getImplementation(method);
     if (!current) return NO;
     if (current == replacement) return YES;
-    *upstream = current;
+
+    // Preserve the first non-RyukGram implementation as the real upstream. If
+    // an older RyukGram MobileConfig trampoline installs after us, put this
+    // owner back on top without chaining through that expensive legacy path.
+    if (!*upstream || !RYGMCIMPBelongsToRyukGram(current)) *upstream = current;
+    if (!*upstream) return NO;
     (void)method_setImplementation(method, replacement);
     return method_getImplementation(method) == replacement;
 }
@@ -182,8 +245,7 @@ static NSUInteger RYGMCOwnerScore(Class cls) {
 }
 
 static void RYGMCOwnerInstallHooks(void) {
-    if (!RYGMCOwnerShouldRun()) return;
-    (void)RYGMobileConfig.shared; // loads persisted mc_overrides.plist before hooks read it
+    if (!RYGMCOwnerShouldRunFast()) return;
     Class fb = objc_lookUpClass("FBMobileConfigContextManager");
     Class ig = objc_lookUpClass("IGMobileConfigContextManager");
     Class cls = RYGMCOwnerScore(fb) >= RYGMCOwnerScore(ig) ? fb : ig;
@@ -205,8 +267,6 @@ static void RYGMCOwnerInstallHooks(void) {
     RYGMCOwnerInstallOne(cls,@"getString:withDefault:",(IMP)RYGMCOwnerStringDef,&gRYGMCUpStringDef,'@',"P@");
     RYGMCOwnerInstallOne(cls,@"getString:withOptions:",(IMP)RYGMCOwnerStringOpts,&gRYGMCUpStringOpts,'@',"P@");
     RYGMCOwnerInstallOne(cls,@"getString:withOptions:withDefault:",(IMP)RYGMCOwnerStringOptsDef,&gRYGMCUpStringOptsDef,'@',"P@@");
-
-    if (RYGMobileConfig.shared.overrideCount) [RYGMobileConfig.shared reapplyOverridesToNativeTable];
 }
 
 static void RYGMCOwnerSchedule(void) {
@@ -216,14 +276,14 @@ static void RYGMCOwnerSchedule(void) {
     }
     dispatch_async(dispatch_get_main_queue(), ^{
         @synchronized(RYGMobileConfig.class) { gRYGMCHookOwnerScheduled = NO; }
-        if (!gRYGMCHookOwnerActive) return;
+        if (!gRYGMCHookOwnerActive || !RYGMCOwnerShouldRunFast()) return;
         RYGMCOwnerInstallHooks();
     });
 }
 
 static void RYGMCOwnerImageDidLoad(const struct mach_header *header, intptr_t slide) {
     (void)header; (void)slide;
-    if (gRYGMCHookOwnerActive && RYGMCOwnerShouldRun()) RYGMCOwnerSchedule();
+    if (gRYGMCHookOwnerActive && RYGMCOwnerShouldRunFast()) RYGMCOwnerSchedule();
 }
 
 @implementation RYGMobileConfig (RYGMobileConfigHookOwner)
@@ -231,37 +291,65 @@ static void RYGMCOwnerImageDidLoad(const struct mach_header *header, intptr_t sl
 + (void)load {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        Method original = class_getInstanceMethod(self, @selector(setOverride:for:));
-        Method owned = class_getInstanceMethod(self, @selector(ryg_owner_setOverride:for:));
-        if (original && owned) method_exchangeImplementations(original, owned);
+        RYGMCPublishSnapshot(RYGMCLoadDiskSnapshot());
+        // Capture the native upstream as early as possible, before the legacy
+        // Logos MobileConfig constructor gets a chance to wrap the same getter.
+        if (RYGMCOwnerShouldRunFast()) RYGMCOwnerInstallHooks();
+
+        Method setOriginal = class_getInstanceMethod(self, @selector(setOverride:for:));
+        Method setOwned = class_getInstanceMethod(self, @selector(ryg_owner_setOverride:for:));
+        if (setOriginal && setOwned) method_exchangeImplementations(setOriginal, setOwned);
+        Method clearOriginal = class_getInstanceMethod(self, @selector(clearOverrideFor:));
+        Method clearOwned = class_getInstanceMethod(self, @selector(ryg_owner_clearOverrideFor:));
+        if (clearOriginal && clearOwned) method_exchangeImplementations(clearOriginal, clearOwned);
+        Method resetOriginal = class_getInstanceMethod(self, @selector(resetAllOverrides));
+        Method resetOwned = class_getInstanceMethod(self, @selector(ryg_owner_resetAllOverrides));
+        if (resetOriginal && resetOwned) method_exchangeImplementations(resetOriginal, resetOwned);
     });
 }
 
 - (BOOL)ryg_owner_setOverride:(id)value for:(RYGMCParam *)param {
     BOOL success = [self ryg_owner_setOverride:value for:param];
-    if (success) {
+    if (success && param.paramID) {
+        RYGMCCacheSet(param.paramID, value);
         gRYGMCHookOwnerActive = YES;
         RYGMCOwnerSchedule();
     }
     return success;
 }
 
+- (void)ryg_owner_clearOverrideFor:(RYGMCParam *)param {
+    unsigned long long pid = param.paramID;
+    [self ryg_owner_clearOverrideFor:param];
+    if (pid) RYGMCCacheSet(pid, nil);
+}
+
+- (void)ryg_owner_resetAllOverrides {
+    [self ryg_owner_resetAllOverrides];
+    RYGMCCacheClear();
+}
+
 @end
 
-__attribute__((constructor)) static void RYGInstallMobileConfigHookOwner(void) {
+__attribute__((constructor(110))) static void RYGInstallMobileConfigHookOwner(void) {
+    @autoreleasepool {
+        if (!gRYGMCCachedOverrides) RYGMCPublishSnapshot(RYGMCLoadDiskSnapshot());
+        gRYGMCHookOwnerActive = YES;
+        if (RYGMCOwnerShouldRunFast()) RYGMCOwnerInstallHooks();
+    }
+
+    _dyld_register_func_for_add_image(RYGMCOwnerImageDidLoad);
     dispatch_async(dispatch_get_main_queue(), ^{
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
             gRYGMCHookOwnerActive = YES;
-            if (RYGMCOwnerShouldRun()) RYGMCOwnerSchedule();
+            if (RYGMCOwnerShouldRunFast()) RYGMCOwnerSchedule();
         }];
         [center addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
             gRYGMCHookOwnerActive = NO;
         }];
-        if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
-            gRYGMCHookOwnerActive = YES;
-            if (RYGMCOwnerShouldRun()) RYGMCOwnerSchedule();
-        }
+        // Run once after all constructors. If the legacy Logos hook installed
+        // after our early capture, this puts the RAM-only owner back on top.
+        if (RYGMCOwnerShouldRunFast()) RYGMCOwnerSchedule();
     });
-    _dyld_register_func_for_add_image(RYGMCOwnerImageDidLoad);
 }
