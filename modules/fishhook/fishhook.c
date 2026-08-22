@@ -81,35 +81,38 @@ static int prepend_rebindings(struct rebindings_entry **rebindings_head,
   return 0;
 }
 
-#if 0
 static int get_protection(void *addr, vm_prot_t *prot, vm_prot_t *max_prot) {
   mach_port_t task = mach_task_self();
   vm_size_t size = 0;
   vm_address_t address = (vm_address_t)addr;
-  memory_object_name_t object;
+  memory_object_name_t object = MACH_PORT_NULL;
 #ifdef __LP64__
   mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
   vm_region_basic_info_data_64_t info;
   kern_return_t info_ret = vm_region_64(
-      task, &address, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_64_t)&info, &count, &object);
+      task, &address, &size, VM_REGION_BASIC_INFO_64,
+      (vm_region_info_64_t)&info, &count, &object);
 #else
   mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT;
   vm_region_basic_info_data_t info;
-  kern_return_t info_ret = vm_region(task, &address, &size, VM_REGION_BASIC_INFO, (vm_region_info_t)&info, &count, &object);
+  kern_return_t info_ret = vm_region(
+      task, &address, &size, VM_REGION_BASIC_INFO,
+      (vm_region_info_t)&info, &count, &object);
 #endif
-  if (info_ret == KERN_SUCCESS) {
-    if (prot != NULL)
-      *prot = info.protection;
-
-    if (max_prot != NULL)
-      *max_prot = info.max_protection;
-
-    return 0;
+  if (object != MACH_PORT_NULL) {
+    mach_port_deallocate(task, object);
   }
-
-  return -1;
+  if (info_ret != KERN_SUCCESS) {
+    return -1;
+  }
+  if (prot != NULL) {
+    *prot = info.protection;
+  }
+  if (max_prot != NULL) {
+    *max_prot = info.max_protection;
+  }
+  return 0;
 }
-#endif
 
 static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
                                            section_t *section,
@@ -123,7 +126,7 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
   for (uint i = 0; i < section->size / sizeof(void *); i++) {
     uint32_t symtab_index = indirect_symbol_indices[i];
     if (symtab_index == INDIRECT_SYMBOL_ABS || symtab_index == INDIRECT_SYMBOL_LOCAL ||
-        symtab_index == (INDIRECT_SYMBOL_LOCAL   | INDIRECT_SYMBOL_ABS)) {
+        symtab_index == (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS)) {
       continue;
     }
     uint32_t strtab_offset = symtab[symtab_index].n_un.n_strx;
@@ -133,27 +136,36 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
     while (cur) {
       for (uint j = 0; j < cur->rebindings_nel; j++) {
         if (symbol_name_longer_than_1 && strcmp(&symbol_name[1], cur->rebindings[j].name) == 0) {
-          kern_return_t err;
+          void *previous = indirect_symbol_bindings[i];
+          if (previous == cur->rebindings[j].replacement) {
+            goto symbol_loop;
+          }
 
-          if (cur->rebindings[j].replaced != NULL && indirect_symbol_bindings[i] != cur->rebindings[j].replacement)
-            *(cur->rebindings[j].replaced) = indirect_symbol_bindings[i];
+          vm_prot_t original_protection = VM_PROT_READ;
+          vm_prot_t max_protection = VM_PROT_READ;
+          (void)get_protection(indirect_symbol_bindings, &original_protection, &max_protection);
 
-          /**
-           * 1. Moved the vm protection modifying codes to here to reduce the
-           *    changing scope.
-           * 2. Adding VM_PROT_WRITE mode unconditionally because vm_region
-           *    API on some iOS/Mac reports mismatch vm protection attributes.
-           * -- Lianfu Hao Jun 16th, 2021
-           **/
-          err = vm_protect (mach_task_self (), (uintptr_t)indirect_symbol_bindings, section->size, 0, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+          // Open the smallest existing indirect-symbol section for a COW write.
+          // Do not report a captured original until the page was actually made
+          // writable, otherwise callers can believe a hook succeeded when the
+          // import slot is still untouched.
+          kern_return_t err = vm_protect(mach_task_self(),
+                                         (vm_address_t)indirect_symbol_bindings,
+                                         (vm_size_t)section->size,
+                                         FALSE,
+                                         original_protection | VM_PROT_WRITE | VM_PROT_COPY);
           if (err == KERN_SUCCESS) {
-            /**
-             * Once we failed to change the vm protection, we
-             * MUST NOT continue the following write actions!
-             * iOS 15 has corrected the const segments prot.
-             * -- Lionfore Hao Jun 11th, 2021
-             **/
+            if (cur->rebindings[j].replaced != NULL) {
+              *(cur->rebindings[j].replaced) = previous;
+            }
             indirect_symbol_bindings[i] = cur->rebindings[j].replacement;
+            // Restore the pre-hook protection instead of leaving __DATA_CONST
+            // writable for the lifetime of the process.
+            (void)vm_protect(mach_task_self(),
+                             (vm_address_t)indirect_symbol_bindings,
+                             (vm_size_t)section->size,
+                             FALSE,
+                             original_protection);
           }
           goto symbol_loop;
         }
@@ -174,8 +186,8 @@ static void rebind_symbols_for_image(struct rebindings_entry *rebindings,
 
   segment_command_t *cur_seg_cmd;
   segment_command_t *linkedit_segment = NULL;
-  struct symtab_command* symtab_cmd = NULL;
-  struct dysymtab_command* dysymtab_cmd = NULL;
+  struct symtab_command *symtab_cmd = NULL;
+  struct dysymtab_command *dysymtab_cmd = NULL;
 
   uintptr_t cur = (uintptr_t)header + sizeof(mach_header_t);
   for (uint i = 0; i < header->ncmds; i++, cur += cur_seg_cmd->cmdsize) {
@@ -185,9 +197,9 @@ static void rebind_symbols_for_image(struct rebindings_entry *rebindings,
         linkedit_segment = cur_seg_cmd;
       }
     } else if (cur_seg_cmd->cmd == LC_SYMTAB) {
-      symtab_cmd = (struct symtab_command*)cur_seg_cmd;
+      symtab_cmd = (struct symtab_command *)cur_seg_cmd;
     } else if (cur_seg_cmd->cmd == LC_DYSYMTAB) {
-      dysymtab_cmd = (struct dysymtab_command*)cur_seg_cmd;
+      dysymtab_cmd = (struct dysymtab_command *)cur_seg_cmd;
     }
   }
 
@@ -196,12 +208,9 @@ static void rebind_symbols_for_image(struct rebindings_entry *rebindings,
     return;
   }
 
-  // Find base symbol/string table addresses
   uintptr_t linkedit_base = (uintptr_t)slide + linkedit_segment->vmaddr - linkedit_segment->fileoff;
   nlist_t *symtab = (nlist_t *)(linkedit_base + symtab_cmd->symoff);
   char *strtab = (char *)(linkedit_base + symtab_cmd->stroff);
-
-  // Get indirect symbol table (array of uint32_t indices into symbol table)
   uint32_t *indirect_symtab = (uint32_t *)(linkedit_base + dysymtab_cmd->indirectsymoff);
 
   cur = (uintptr_t)header + sizeof(mach_header_t);
@@ -213,8 +222,7 @@ static void rebind_symbols_for_image(struct rebindings_entry *rebindings,
         continue;
       }
       for (uint j = 0; j < cur_seg_cmd->nsects; j++) {
-        section_t *sect =
-          (section_t *)(cur + sizeof(segment_command_t)) + j;
+        section_t *sect = (section_t *)(cur + sizeof(segment_command_t)) + j;
         if ((sect->flags & SECTION_TYPE) == S_LAZY_SYMBOL_POINTERS) {
           perform_rebinding_with_section(rebindings, sect, slide, symtab, strtab, indirect_symtab);
         }
@@ -228,21 +236,21 @@ static void rebind_symbols_for_image(struct rebindings_entry *rebindings,
 
 static void _rebind_symbols_for_image(const struct mach_header *header,
                                       intptr_t slide) {
-    rebind_symbols_for_image(_rebindings_head, header, slide);
+  rebind_symbols_for_image(_rebindings_head, header, slide);
 }
 
 int rebind_symbols_image(void *header,
                          intptr_t slide,
                          struct rebinding rebindings[],
                          size_t rebindings_nel) {
-    struct rebindings_entry *rebindings_head = NULL;
-    int retval = prepend_rebindings(&rebindings_head, rebindings, rebindings_nel);
-    rebind_symbols_for_image(rebindings_head, (const struct mach_header *) header, slide);
-    if (rebindings_head) {
-      free(rebindings_head->rebindings);
-    }
-    free(rebindings_head);
-    return retval;
+  struct rebindings_entry *rebindings_head = NULL;
+  int retval = prepend_rebindings(&rebindings_head, rebindings, rebindings_nel);
+  rebind_symbols_for_image(rebindings_head, (const struct mach_header *)header, slide);
+  if (rebindings_head) {
+    free(rebindings_head->rebindings);
+  }
+  free(rebindings_head);
+  return retval;
 }
 
 int rebind_symbols(struct rebinding rebindings[], size_t rebindings_nel) {
@@ -250,8 +258,6 @@ int rebind_symbols(struct rebinding rebindings[], size_t rebindings_nel) {
   if (retval < 0) {
     return retval;
   }
-  // If this was the first call, register callback for image additions (which is also invoked for
-  // existing images, otherwise, just run on existing images
   if (!_rebindings_head->next) {
     _dyld_register_func_for_add_image(_rebind_symbols_for_image);
   } else {

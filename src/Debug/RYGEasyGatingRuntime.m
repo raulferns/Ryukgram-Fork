@@ -18,7 +18,7 @@ NSString *const RYGEasyGatingGateIDUserInfoKey = @"gateID";
 
 static NSString *const kRYGEasyGatingOverridesKey = @"ryg_easy_gating_platform_bool_overrides_v2";
 
-// Current FBShared ABI, verified with LIEF + Capstone + llvm-objdump:
+// Current FBShared ABI, verified with LIEF + Capstone + radare2/llvm-objdump:
 //
 // EasyGatingGetBoolean_Internal_DoNotUseOrMock(context, selectorIndex,
 //                                              defaultValue, exposureSource)
@@ -210,7 +210,7 @@ static BOOL RYGResolveFinalGateID(RYGEasyGatingBoolFn wrapper,
     NSString *image = [NSString stringWithUTF8String:info.dli_fname] ?: @"";
     if (![image.lastPathComponent containsString:@"FBSharedFramework"]) return NO;
 
-    // FBSharedFramework(20260819-042733): mapper starts at wrapper + 0x34.
+    // FBSharedFramework(20260821-132949): mapper starts at wrapper + 0x34.
     // Validate ARM64 ADRP/ADD/ADR instructions before trusting any address so a
     // future build simply becomes unobservable instead of reading arbitrary data.
     uintptr_t helper = wrapperAddress + 0x34;
@@ -259,6 +259,16 @@ static BOOL RYGResolveFinalGateID(RYGEasyGatingBoolFn wrapper,
 
     uint32_t targetInstructions[2] = {0};
     memcpy(targetInstructions, (const void *)target, sizeof(targetInstructions));
+
+    // The current table has identity entries that branch directly to the exact
+    // wrapper epilogue. W0 still contains selectorIndex there, so rejecting these
+    // entries would make legitimate gates invisible to the runtime browser.
+    if (targetInstructions[0] == 0xa8c17bfdu && // ldp x29, x30, [sp], #0x10
+        targetInstructions[1] == 0xd65f03c0u) { // ret
+        *finalGateID = selectorIndex;
+        return YES;
+    }
+
     uint32_t movz = targetInstructions[0];
     if ((movz & 0x7f80001fu) != 0x52800000u) return NO; // MOVZ W0, #imm
     uint32_t hw = (movz >> 21) & 0x3u;
@@ -312,7 +322,7 @@ static BOOL RYGRegisterEasyGatingRebindings(void) {
         .replacement = (void *)&RYGEasyGatingWrapperReplacement,
         .replaced = (void **)&gRYGOriginalEasyGatingWrapper,
     };
-    // Instagram(7) imports/calls this wrapper directly. Rebind only the main
+    // Instagram(9) imports/calls this wrapper directly. Rebind only the main
     // executable's import slot; do not register a process-wide hook and do not
     // modify FBSharedFramework.__TEXT.
     if (rebind_symbols_image((void *)mainHeader, mainSlide, &binding, 1) != 0 || !gRYGOriginalEasyGatingWrapper) {

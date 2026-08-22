@@ -23,6 +23,7 @@ static NSMutableDictionary<NSNumber *, NSValue *> *gCallSites;
 static NSMutableDictionary<NSNumber *, id> *gActiveOverrides;
 static NSMutableDictionary<NSNumber *, NSNumber *> *gRealPidByOrdIdx;
 static pthread_mutex_t gLock = PTHREAD_MUTEX_INITIALIZER;
+static atomic_bool gPersistedNativeSyncScheduled = false;
 
 static void *rygSym(const char *name) { return dlsym(RTLD_DEFAULT, name); }
 
@@ -62,6 +63,14 @@ static void rygCaptureManager(id manager, unsigned long long pid) {
     if (!manager || !pid) return; gManager = manager;
     unsigned long long unit = (pid >> 48) & 0xF0; unsigned int ordinal = (unsigned int)((pid >> 32) & 0xFFFF); unsigned int index = (unsigned int)((pid >> 16) & 0xFFFF);
     pthread_mutex_lock(&gLock); if (!gManagersByUnit) gManagersByUnit = [NSMutableDictionary dictionary]; if (!gRealPidByOrdIdx) gRealPidByOrdIdx = [NSMutableDictionary dictionary]; gManagersByUnit[@(unit)] = manager; gRealPidByOrdIdx[@(((unsigned long long)ordinal << 20) | index)] = @(pid); pthread_mutex_unlock(&gLock);
+
+    bool expected = false;
+    if (atomic_compare_exchange_strong_explicit(&gPersistedNativeSyncScheduled, &expected, true, memory_order_relaxed, memory_order_relaxed)) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            RYGMobileConfig *mobileConfig = RYGMobileConfig.shared;
+            if (mobileConfig.overrideCount) [mobileConfig reapplyOverridesToNativeTable];
+        });
+    }
 }
 
 static BOOL rygPathIsRyukGram(NSString *path) { return [path.lastPathComponent.lowercaseString containsString:@"ryukgram"]; }
@@ -139,7 +148,15 @@ static id new_getStringOptsDef(id self, SEL cmd, unsigned long long pid, id opts
 }
 
 + (instancetype)shared { static RYGMobileConfig *shared; static dispatch_once_t once; dispatch_once(&once, ^{ shared = [RYGMobileConfig new]; }); return shared; }
-- (instancetype)init { if ((self = [super init])) { _overrides = [self loadOverrides]; _notes = [self loadNotes]; _typeFromParam = (int (*)(unsigned long long))rygSym("_ZN12mobileconfig17typeFromParameterEy"); } return self; }
+- (instancetype)init {
+    if ((self = [super init])) {
+        _overrides = [self loadOverrides];
+        for (NSNumber *pid in _overrides) rygActivateOverride(pid.unsignedLongLongValue, _overrides[pid]);
+        _notes = [self loadNotes];
+        _typeFromParam = (int (*)(unsigned long long))rygSym("_ZN12mobileconfig17typeFromParameterEy");
+    }
+    return self;
+}
 - (BOOL)ready { return _ready; }
 - (NSUInteger)namedConfigCount { return _namedConfigCount; }
 
@@ -245,13 +262,19 @@ static BOOL rygMethodIsVoidQ(Method m) { if (!m || method_getNumberOfArguments(m
 - (id)overrideValueFor:(RYGMCParam *)param { return (param.runtimeBacked && param.paramID) ? _overrides[@(rygCanonicalPid(param.paramID))] : nil; }
 - (BOOL)setOverride:(id)value for:(RYGMCParam *)param {
     if (!param.runtimeBacked || !param.paramID || !RYGMCTypeIsRuntimeValue(param.type)) return NO; BOOL valid = param.type == RYGMCTypeString ? [value isKindOfClass:NSString.class] : [value isKindOfClass:NSNumber.class]; if (!valid) return NO;
-    unsigned long long pid = rygCanonicalPid(param.paramID); if (![self writeNativeBothUnitsForPid:pid value:value]) return NO; rygActivateOverride(pid,value); _overrides[@(pid)] = value; [self saveOverrides]; return YES;
+    unsigned long long pid = rygCanonicalPid(param.paramID);
+    // Getter interception is the authoritative runtime path. Persist and arm it
+    // even when StartupConfigs is not instantiated yet; native table sync is a
+    // best-effort mirror, not a prerequisite for an override to exist.
+    rygActivateOverride(pid,value); _overrides[@(pid)] = value; [self saveOverrides];
+    (void)[self writeNativeBothUnitsForPid:pid value:value];
+    return YES;
 }
-- (void)clearOverrideFor:(RYGMCParam *)param { if (!param.runtimeBacked || !param.paramID) return; unsigned long long pid = rygCanonicalPid(param.paramID); [self removeNativeBothUnitsForPid:pid]; rygDeactivateOverride(pid); [_overrides removeObjectForKey:@(pid)]; [self saveOverrides]; }
+- (void)clearOverrideFor:(RYGMCParam *)param { if (!param.runtimeBacked || !param.paramID) return; unsigned long long pid = rygCanonicalPid(param.paramID); rygDeactivateOverride(pid); [_overrides removeObjectForKey:@(pid)]; [self saveOverrides]; [self removeNativeBothUnitsForPid:pid]; }
 - (void)resetOverridesForConfig:(RYGMCConfig *)config { for (RYGMCParam *p in config.params) if ([self overrideStateFor:p] == RYGMCOverrideSet) [self clearOverrideFor:p]; }
 - (NSUInteger)overrideCount { return _overrides.count; }
-- (void)resetAllOverrides { for (NSNumber *k in _overrides.allKeys.copy) { [self removeNativeBothUnitsForPid:k.unsignedLongLongValue]; rygDeactivateOverride(k.unsignedLongLongValue); } [_overrides removeAllObjects]; [self saveOverrides]; }
-- (void)reapplyOverridesToNativeTable { for (NSNumber *k in _overrides.copy) { id v = _overrides[k]; if ([self writeNativeBothUnitsForPid:k.unsignedLongLongValue value:v]) rygActivateOverride(k.unsignedLongLongValue,v); } }
+- (void)resetAllOverrides { for (NSNumber *k in _overrides.allKeys.copy) { rygDeactivateOverride(k.unsignedLongLongValue); [self removeNativeBothUnitsForPid:k.unsignedLongLongValue]; } [_overrides removeAllObjects]; [self saveOverrides]; }
+- (void)reapplyOverridesToNativeTable { for (NSNumber *k in _overrides.copy) { id v = _overrides[k]; rygActivateOverride(k.unsignedLongLongValue,v); (void)[self writeNativeBothUnitsForPid:k.unsignedLongLongValue value:v]; } }
 
 #pragma mark - Seen, notes, persistence
 - (NSString *)callSiteFor:(RYGMCParam *)param { if (!param.runtimeBacked || !param.paramID) return nil; unsigned long long best = [self bestParamIDFor:param]; pthread_mutex_lock(&gLock); NSValue *v = gCallSites[@(best)] ?: gCallSites[@(rygVariantPid(param.paramID,0x40))] ?: gCallSites[@(rygVariantPid(param.paramID,0x80))]; pthread_mutex_unlock(&gLock); if (!v) return nil; Dl_info info = {0}; if (dladdr(v.pointerValue,&info) && info.dli_sname) return [NSString stringWithUTF8String:info.dli_sname]; return @"Instagram runtime"; }
@@ -297,4 +320,4 @@ static void rygInstallMobileConfigHooks(void) {
 static BOOL gInstallScheduled;
 static void rygScheduleInstall(void) { @synchronized(RYGMobileConfig.class) { if (gInstallScheduled) return; gInstallScheduled = YES; } dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.1 * NSEC_PER_SEC)),dispatch_get_main_queue(), ^{ @synchronized(RYGMobileConfig.class) { gInstallScheduled = NO; } rygInstallMobileConfigHooks(); }); }
 static void rygImageDidLoad(const struct mach_header *header, intptr_t slide) { (void)header; (void)slide; rygScheduleInstall(); }
-%ctor { if (![RYGUtils getBoolPref:@"ryg_metaconfig_enabled"]) return; rygInstallMobileConfigHooks(); _dyld_register_func_for_add_image(rygImageDidLoad); }
+%ctor { if (![RYGUtils getBoolPref:@"ryg_metaconfig_enabled"]) return; (void)RYGMobileConfig.shared; rygInstallMobileConfigHooks(); _dyld_register_func_for_add_image(rygImageDidLoad); }
