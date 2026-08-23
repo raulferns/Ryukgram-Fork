@@ -60,6 +60,8 @@ for legacy_module in (ROOT / "modules/zxPluginsInject", ROOT / "modules/Sideload
         fail(f"separate sideload helper returned: {legacy_module.relative_to(ROOT)}")
 
 # Runtime Browser: discovery is on-demand; persistence has one bounded owner.
+# Persisted exact hooks may act during startup, so their invocation path must be
+# atomic-only rather than deferred until after the gate was already evaluated.
 manager_h = read("src/Debug/RYGRuntimeHookManager.h")
 manager = read("src/Debug/RYGRuntimeHookManager.m")
 bulk = read("src/Debug/RYGRuntimeBulkSessionOwner.m")
@@ -68,20 +70,34 @@ engine = read("src/Debug/RYGRuntimeBrowserEngine.m")
 require(manager_h, ("RYGRuntimeHookManager", "setSessionOverride"), "runtime hook manager header")
 require(manager, (
     "ryg_runtime_bool_hook_specs_v7",
+    "ryg_runtime_legacy_bulk_cleanup_v8",
     "kRYGRuntimePersistentSpecLimit = 128",
     "kRYGRuntimeCPersistentSpecLimit = 8",
+    "RYGRuntimeHotState",
+    "forcedSet",
+    "forcedValue",
+    "nativeValue",
+    "RYGHookHotResult",
+    "atomic_exchange_explicit",
     "gRYGRuntimePending",
     "gRYGCPending",
     "RYGHookDirectMethod",
     "RYGHookInstallExact",
     "RYGHasPendingRestore",
     "setSessionOverride",
+    "RYGPurgeUntouchedLegacyBulkIfNeeded",
+    "constructor(205)",
+    "No second timer replay here",
     "_dyld_register_func_for_add_image",
 ), "runtime hook manager")
 if "objc_getClassList" in manager or "objc_copyClassNamesForImage" in manager:
     fail("runtime persistence owner must replay exact identities, never discover classes")
 if "gRYGRuntimePending.allObjects" not in manager:
     fail("runtime replay must iterate unresolved identities only")
+if "RYGHookOverride(strongRecord" in manager or "RYGHookRememberNative(strongRecord" in manager:
+    fail("persisted runtime trampoline reintroduced dictionary/lock lookup per invocation")
+if "RYGRuntimeRestoreLaunchGate" in manager or (ROOT / "src/Debug/RYGRuntimeRestoreLaunchGate.m").exists():
+    fail("generic persisted hooks must preserve startup semantics; post-active launch gate returned")
 require(bulk, ("setSessionOverride", "session only", "revealAllVisibilityRows"), "bulk visibility")
 if "setOverride:desired" in bulk:
     fail("Reveal All must not persist a bulk generic hook set")
@@ -122,7 +138,7 @@ for forbidden in (" prepare]", "reloadFromRuntime", "reapplyOverridesToNativeTab
     if forbidden in activation.group("body"):
         fail(f"Developer startup restore must not enumerate/reapply MobileConfig: {forbidden}")
 
-# MobileConfig: the app-launch getter path must be RAM-only.
+# MobileConfig: the app-launch getter path must be lock-free and allocation-free.
 mc_header = read("src/Features/ExpFlags/RYGMobileConfig.h")
 for type_name, discriminator in (("RYGMCTypeBool",1),("RYGMCTypeInt",2),("RYGMCTypeString",3),("RYGMCTypeDouble",4)):
     if not re.search(rf"\b{type_name}\s*=\s*{discriminator}\b", mc_header):
@@ -131,20 +147,41 @@ mc = read("src/Features/ExpFlags/RYGMobileConfig.xm")
 require(mc, ("_ZN12mobileconfig17typeFromParameterEy", "_ZN12mobileconfig23kMobileConfigParamsListE", "setOverrideForParam:andValue:", "removeOverrideForParam:"), "MobileConfig")
 mc_owner = read("src/Features/ExpFlags/RYGMobileConfigHookOwner.m")
 require(mc_owner, (
-    "RYGMCLoadDiskSnapshot",
-    "gRYGMCCachedOverrides",
+    "RYG_MC_HOT_CAPACITY",
+    "gRYGMCHotSlots",
+    "RYGMCHotFindSlot",
+    "RYGMCHotLoadDiskSnapshotOnce",
     "RYGMCOwnedOverride",
+    "atomic_load_explicit",
     "RYGMCIMPBelongsToRyukGram",
-    "Capture the native upstream as early as possible",
+    "gRYGMCHooksInstalled",
+    "Capture native IMPs before the legacy Logos constructor",
 ), "MobileConfig hot-path owner")
 match = re.search(r"static id RYGMCOwnedOverride\([^)]*\)\s*\{(?P<body>.*?)\n\}", mc_owner, re.S)
 if not match:
     fail("could not inspect MobileConfig hot getter lookup")
-for forbidden in ("RYGMobileConfig.shared", "class_getInstanceVariable", "dictionaryWithContentsOfFile", "backtrace", "reapplyOverridesToNativeTable"):
+for forbidden in (
+    "NSNumber", "NSDictionary", "NSMutableDictionary", "os_unfair_lock",
+    "RYGMobileConfig.shared", "class_getInstanceVariable", "dictionaryWithContentsOfFile",
+    "NSUserDefaults", "backtrace", "dladdr", "reapplyOverridesToNativeTable",
+):
     if forbidden in match.group("body"):
         fail(f"MobileConfig getter hot path performs expensive work: {forbidden}")
 if "reapplyOverridesToNativeTable" in mc_owner:
     fail("MobileConfig hook-install owner must not reapply the full native override table")
+
+# The old Logos MobileConfig getter owner remains source-compatible only; it may
+# not stack on top of the RAM owner during the constructor window.
+mc_legacy_gate = read("src/Features/ExpFlags/RYGMobileConfigLegacyHookGate.m")
+require(mc_legacy_gate, (
+    "constructor(90)",
+    "ryg_metaconfig_enabled",
+    "method_exchangeImplementations",
+    "UIApplicationDidFinishLaunchingNotification",
+    "RYGMCLegacyGateRemove",
+), "legacy MobileConfig hook gate")
+if "setBool:" in mc_legacy_gate or "setObject:" in mc_legacy_gate:
+    fail("legacy MobileConfig gate must never mutate the user's saved preference")
 mc_backtrace = read("src/Features/ExpFlags/RYGMobileConfigBacktraceGuard.m")
 require(mc_backtrace, ("rebind_symbols_image", '.name = \"backtrace\"', "RYGMobileConfigBacktraceDisabled", "constructor(100)"), "MobileConfig callsite guard")
 
@@ -204,4 +241,4 @@ if logos and logos.is_file():
             detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "unknown Logos error"
             fail(f"Logos preprocessing failed for {path.relative_to(ROOT)}: {detail}")
 
-print("source validation OK: SDK 26.5, RAM-only MobileConfig getter path, bounded unresolved runtime replay, session-only bulk reveal, on-demand browser, integrated sideload compatibility")
+print("source validation OK: SDK 26.5, atomic startup-safe runtime hooks, one-time legacy bulk cleanup, lock-free MobileConfig getters, legacy getter stacking blocked, unresolved-only replay, session-only bulk reveal, on-demand browser, integrated sideload compatibility")

@@ -5,25 +5,32 @@
 #import <mach-o/dyld.h>
 #import <os/lock.h>
 #import <dlfcn.h>
+#include <stdint.h>
+#include <stdatomic.h>
+#include <stdlib.h>
 #include <string.h>
 
 // Persistent MobileConfig getter owner.
 //
-// Critical runtime rule: Instagram evaluates MobileConfig getters thousands of
-// times while launching. The getter path therefore MUST be RAM-only. It must not
-// touch NSUserDefaults, disk, RYGMobileConfig.shared, Objective-C ivar lookup,
-// backtraces, or native override-table writes.
-//
-// This owner keeps a tiny canonical PID -> value snapshot in memory. Explicit
-// user mutations update that snapshot. The on-disk plist is read once when the
-// tweak loads; dyld callbacks only attempt exact hook installation and never
-// parse files or reapply the entire native table.
+// Instagram evaluates these getters at very high frequency during cold launch.
+// The getter path therefore contains only integer arithmetic, atomic loads and
+// the original call. No Objective-C dictionary lookup, NSNumber creation, lock,
+// disk access, NSUserDefaults, backtrace, dladdr or native-table write is allowed
+// on the hot read path.
 
-static os_unfair_lock gRYGMCCacheLock = OS_UNFAIR_LOCK_INIT;
-static NSDictionary<NSNumber *, id> *gRYGMCCachedOverrides;
-static BOOL gRYGMCHookOwnerScheduled;
-static BOOL gRYGMCHookOwnerActive;
-static BOOL gRYGMCHookOwnerShouldRun;
+#define RYG_MC_HOT_CAPACITY 16384u
+
+typedef struct {
+    atomic_uint_fast64_t pid;
+    atomic_uintptr_t value;
+} RYGMCHotSlot;
+
+static RYGMCHotSlot gRYGMCHotSlots[RYG_MC_HOT_CAPACITY];
+static os_unfair_lock gRYGMCHotMutationLock = OS_UNFAIR_LOCK_INIT;
+static atomic_uint_fast32_t gRYGMCHotCount = 0;
+static atomic_bool gRYGMCHookOwnerShouldRun = false;
+static atomic_bool gRYGMCHooksInstalled = false;
+static BOOL gRYGMCPreferenceEnabledAtLoad = NO;
 
 static IMP gRYGMCUpBool;
 static IMP gRYGMCUpBoolDef;
@@ -48,16 +55,96 @@ static unsigned long long RYGMCForceCanonicalPID(unsigned long long pid) {
     return (pid & 0x0000FFFFFFFFFFFFULL) | ((0x40ULL | type) << 48);
 }
 
+static NSUInteger RYGMCHotIndex(unsigned long long pid) {
+    uint64_t x = pid;
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdULL;
+    x ^= x >> 33;
+    x *= 0xc4ceb9fe1a85ec53ULL;
+    x ^= x >> 33;
+    return (NSUInteger)(x & (RYG_MC_HOT_CAPACITY - 1u));
+}
+
+static RYGMCHotSlot *RYGMCHotFindSlot(unsigned long long canonical, BOOL create) {
+    if (!canonical) return NULL;
+    NSUInteger start = RYGMCHotIndex(canonical);
+    for (NSUInteger probe = 0; probe < RYG_MC_HOT_CAPACITY; probe++) {
+        RYGMCHotSlot *slot = &gRYGMCHotSlots[(start + probe) & (RYG_MC_HOT_CAPACITY - 1u)];
+        uint64_t existing = atomic_load_explicit(&slot->pid, memory_order_acquire);
+        if (existing == canonical) return slot;
+        if (existing == 0) {
+            if (!create) return NULL;
+            atomic_store_explicit(&slot->pid, canonical, memory_order_release);
+            return slot;
+        }
+    }
+    return NULL;
+}
+
+static void RYGMCHotRefreshShouldRun(void) {
+    BOOL hasOverrides = atomic_load_explicit(&gRYGMCHotCount, memory_order_acquire) > 0;
+    atomic_store_explicit(&gRYGMCHookOwnerShouldRun,
+                          hasOverrides || gRYGMCPreferenceEnabledAtLoad,
+                          memory_order_release);
+}
+
+static void RYGMCHotSet(unsigned long long pid, id value) {
+    unsigned long long canonical = RYGMCForceCanonicalPID(pid);
+    if (!canonical) return;
+
+    // Mutation is rare and serialized. Readers never take this lock.
+    os_unfair_lock_lock(&gRYGMCHotMutationLock);
+    RYGMCHotSlot *slot = RYGMCHotFindSlot(canonical, value != nil);
+    if (slot) {
+        uintptr_t previous = atomic_load_explicit(&slot->value, memory_order_acquire);
+        uintptr_t next = value ? (uintptr_t)(__bridge_retained void *)value : 0;
+        atomic_store_explicit(&slot->value, next, memory_order_release);
+        if (!previous && next) atomic_fetch_add_explicit(&gRYGMCHotCount, 1, memory_order_acq_rel);
+        else if (previous && !next) atomic_fetch_sub_explicit(&gRYGMCHotCount, 1, memory_order_acq_rel);
+        // Previous values are intentionally retained until process exit. This
+        // avoids a reader/use-after-free race without putting reclamation on the
+        // getter path; one object is retained per explicit user mutation only.
+    }
+    RYGMCHotRefreshShouldRun();
+    os_unfair_lock_unlock(&gRYGMCHotMutationLock);
+}
+
+static void RYGMCHotClear(void) {
+    os_unfair_lock_lock(&gRYGMCHotMutationLock);
+    for (NSUInteger index = 0; index < RYG_MC_HOT_CAPACITY; index++) {
+        if (atomic_load_explicit(&gRYGMCHotSlots[index].pid, memory_order_relaxed) != 0)
+            atomic_store_explicit(&gRYGMCHotSlots[index].value, 0, memory_order_release);
+    }
+    atomic_store_explicit(&gRYGMCHotCount, 0, memory_order_release);
+    RYGMCHotRefreshShouldRun();
+    os_unfair_lock_unlock(&gRYGMCHotMutationLock);
+}
+
+static id RYGMCOwnedOverride(unsigned long long pid) {
+    unsigned long long canonical = RYGMCForceCanonicalPID(pid);
+    if (!canonical) return nil;
+    RYGMCHotSlot *slot = RYGMCHotFindSlot(canonical, NO);
+    if (!slot) return nil;
+    uintptr_t raw = atomic_load_explicit(&slot->value, memory_order_acquire);
+    return raw ? (__bridge id)((void *)raw) : nil;
+}
+
+static BOOL RYGMCOwnerShouldRunFast(void) {
+    return atomic_load_explicit(&gRYGMCHookOwnerShouldRun, memory_order_acquire);
+}
+
 static NSString *RYGMCOverridesStorePath(void) {
     NSString *support = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
     if (!support.length) return nil;
     return [[support stringByAppendingPathComponent:@"RyukGram"] stringByAppendingPathComponent:@"mc_overrides.plist"];
 }
 
-static NSDictionary<NSNumber *, id> *RYGMCLoadDiskSnapshot(void) {
+static void RYGMCHotLoadDiskSnapshotOnce(void) {
     NSDictionary *disk = [NSDictionary dictionaryWithContentsOfFile:RYGMCOverridesStorePath()];
-    if (![disk isKindOfClass:NSDictionary.class] || !disk.count) return @{};
-    NSMutableDictionary<NSNumber *, id> *snapshot = [NSMutableDictionary dictionaryWithCapacity:disk.count];
+    if (![disk isKindOfClass:NSDictionary.class] || !disk.count) {
+        RYGMCHotRefreshShouldRun();
+        return;
+    }
     [disk enumerateKeysAndObjectsUsingBlock:^(id rawKey, id value, BOOL *stop) {
         (void)stop;
         if (![rawKey isKindOfClass:NSString.class]) return;
@@ -69,51 +156,8 @@ static NSDictionary<NSNumber *, id> *RYGMCLoadDiskSnapshot(void) {
         unsigned long long canonical = RYGMCForceCanonicalPID(pid);
         unsigned int type = (unsigned int)((canonical >> 48) & 0x0fULL);
         BOOL valid = type == 3 ? [value isKindOfClass:NSString.class] : [value isKindOfClass:NSNumber.class];
-        if (valid) snapshot[@(canonical)] = value;
+        if (valid) RYGMCHotSet(canonical, value);
     }];
-    return snapshot.copy;
-}
-
-static void RYGMCPublishSnapshot(NSDictionary<NSNumber *, id> *snapshot) {
-    os_unfair_lock_lock(&gRYGMCCacheLock);
-    gRYGMCCachedOverrides = snapshot.copy ?: @{};
-    gRYGMCHookOwnerShouldRun = gRYGMCCachedOverrides.count > 0 || [RYGUtils getBoolPref:@"ryg_metaconfig_enabled"];
-    os_unfair_lock_unlock(&gRYGMCCacheLock);
-}
-
-static void RYGMCCacheSet(unsigned long long pid, id value) {
-    if (!pid) return;
-    unsigned long long canonical = RYGMCForceCanonicalPID(pid);
-    os_unfair_lock_lock(&gRYGMCCacheLock);
-    NSMutableDictionary *next = [gRYGMCCachedOverrides mutableCopy] ?: [NSMutableDictionary dictionary];
-    if (value) next[@(canonical)] = value;
-    else [next removeObjectForKey:@(canonical)];
-    gRYGMCCachedOverrides = next.copy;
-    gRYGMCHookOwnerShouldRun = gRYGMCCachedOverrides.count > 0 || [RYGUtils getBoolPref:@"ryg_metaconfig_enabled"];
-    os_unfair_lock_unlock(&gRYGMCCacheLock);
-}
-
-static void RYGMCCacheClear(void) {
-    os_unfair_lock_lock(&gRYGMCCacheLock);
-    gRYGMCCachedOverrides = @{};
-    gRYGMCHookOwnerShouldRun = [RYGUtils getBoolPref:@"ryg_metaconfig_enabled"];
-    os_unfair_lock_unlock(&gRYGMCCacheLock);
-}
-
-static id RYGMCOwnedOverride(unsigned long long pid) {
-    if (!pid) return nil;
-    NSNumber *key = @(RYGMCForceCanonicalPID(pid));
-    os_unfair_lock_lock(&gRYGMCCacheLock);
-    id value = gRYGMCCachedOverrides[key];
-    os_unfair_lock_unlock(&gRYGMCCacheLock);
-    return value;
-}
-
-static BOOL RYGMCOwnerShouldRunFast(void) {
-    os_unfair_lock_lock(&gRYGMCCacheLock);
-    BOOL value = gRYGMCHookOwnerShouldRun;
-    os_unfair_lock_unlock(&gRYGMCCacheLock);
-    return value;
 }
 
 static const char *RYGMCUnqualified(const char *type) {
@@ -163,9 +207,8 @@ static BOOL RYGMCOwnerInstallOne(Class cls, NSString *selectorName, IMP replacem
     if (!current) return NO;
     if (current == replacement) return YES;
 
-    // Preserve the first non-RyukGram implementation as the real upstream. If
-    // an older RyukGram MobileConfig trampoline installs after us, put this
-    // owner back on top without chaining through that expensive legacy path.
+    // Preserve the first non-RyukGram implementation as the native upstream.
+    // Never chain through the older telemetry/capture trampoline.
     if (!*upstream || !RYGMCIMPBelongsToRyukGram(current)) *upstream = current;
     if (!*upstream) return NO;
     (void)method_setImplementation(method, replacement);
@@ -251,39 +294,32 @@ static void RYGMCOwnerInstallHooks(void) {
     Class cls = RYGMCOwnerScore(fb) >= RYGMCOwnerScore(ig) ? fb : ig;
     if (!cls) return;
 
-    RYGMCOwnerInstallOne(cls,@"getBool:",(IMP)RYGMCOwnerBool,&gRYGMCUpBool,'B',"P");
-    RYGMCOwnerInstallOne(cls,@"getBool:withDefault:",(IMP)RYGMCOwnerBoolDef,&gRYGMCUpBoolDef,'B',"PB");
-    RYGMCOwnerInstallOne(cls,@"getBool:withOptions:",(IMP)RYGMCOwnerBoolOpts,&gRYGMCUpBoolOpts,'B',"P@");
-    RYGMCOwnerInstallOne(cls,@"getBool:withOptions:withDefault:",(IMP)RYGMCOwnerBoolOptsDef,&gRYGMCUpBoolOptsDef,'B',"P@B");
-    RYGMCOwnerInstallOne(cls,@"getInt64:",(IMP)RYGMCOwnerInt,&gRYGMCUpInt,'Q',"P");
-    RYGMCOwnerInstallOne(cls,@"getInt64:withDefault:",(IMP)RYGMCOwnerIntDef,&gRYGMCUpIntDef,'Q',"PQ");
-    RYGMCOwnerInstallOne(cls,@"getInt64:withOptions:",(IMP)RYGMCOwnerIntOpts,&gRYGMCUpIntOpts,'Q',"P@");
-    RYGMCOwnerInstallOne(cls,@"getInt64:withOptions:withDefault:",(IMP)RYGMCOwnerIntOptsDef,&gRYGMCUpIntOptsDef,'Q',"P@Q");
-    RYGMCOwnerInstallOne(cls,@"getDouble:",(IMP)RYGMCOwnerDouble,&gRYGMCUpDouble,'D',"P");
-    RYGMCOwnerInstallOne(cls,@"getDouble:withDefault:",(IMP)RYGMCOwnerDoubleDef,&gRYGMCUpDoubleDef,'D',"PD");
-    RYGMCOwnerInstallOne(cls,@"getDouble:withOptions:",(IMP)RYGMCOwnerDoubleOpts,&gRYGMCUpDoubleOpts,'D',"P@");
-    RYGMCOwnerInstallOne(cls,@"getDouble:withOptions:withDefault:",(IMP)RYGMCOwnerDoubleOptsDef,&gRYGMCUpDoubleOptsDef,'D',"P@D");
-    RYGMCOwnerInstallOne(cls,@"getString:",(IMP)RYGMCOwnerString,&gRYGMCUpString,'@',"P");
-    RYGMCOwnerInstallOne(cls,@"getString:withDefault:",(IMP)RYGMCOwnerStringDef,&gRYGMCUpStringDef,'@',"P@");
-    RYGMCOwnerInstallOne(cls,@"getString:withOptions:",(IMP)RYGMCOwnerStringOpts,&gRYGMCUpStringOpts,'@',"P@");
-    RYGMCOwnerInstallOne(cls,@"getString:withOptions:withDefault:",(IMP)RYGMCOwnerStringOptsDef,&gRYGMCUpStringOptsDef,'@',"P@@");
-}
-
-static void RYGMCOwnerSchedule(void) {
-    @synchronized(RYGMobileConfig.class) {
-        if (gRYGMCHookOwnerScheduled) return;
-        gRYGMCHookOwnerScheduled = YES;
-    }
-    dispatch_async(dispatch_get_main_queue(), ^{
-        @synchronized(RYGMobileConfig.class) { gRYGMCHookOwnerScheduled = NO; }
-        if (!gRYGMCHookOwnerActive || !RYGMCOwnerShouldRunFast()) return;
-        RYGMCOwnerInstallHooks();
-    });
+    BOOL installed = NO;
+    installed |= RYGMCOwnerInstallOne(cls,@"getBool:",(IMP)RYGMCOwnerBool,&gRYGMCUpBool,'B',"P");
+    installed |= RYGMCOwnerInstallOne(cls,@"getBool:withDefault:",(IMP)RYGMCOwnerBoolDef,&gRYGMCUpBoolDef,'B',"PB");
+    installed |= RYGMCOwnerInstallOne(cls,@"getBool:withOptions:",(IMP)RYGMCOwnerBoolOpts,&gRYGMCUpBoolOpts,'B',"P@");
+    installed |= RYGMCOwnerInstallOne(cls,@"getBool:withOptions:withDefault:",(IMP)RYGMCOwnerBoolOptsDef,&gRYGMCUpBoolOptsDef,'B',"P@B");
+    installed |= RYGMCOwnerInstallOne(cls,@"getInt64:",(IMP)RYGMCOwnerInt,&gRYGMCUpInt,'Q',"P");
+    installed |= RYGMCOwnerInstallOne(cls,@"getInt64:withDefault:",(IMP)RYGMCOwnerIntDef,&gRYGMCUpIntDef,'Q',"PQ");
+    installed |= RYGMCOwnerInstallOne(cls,@"getInt64:withOptions:",(IMP)RYGMCOwnerIntOpts,&gRYGMCUpIntOpts,'Q',"P@");
+    installed |= RYGMCOwnerInstallOne(cls,@"getInt64:withOptions:withDefault:",(IMP)RYGMCOwnerIntOptsDef,&gRYGMCUpIntOptsDef,'Q',"P@Q");
+    installed |= RYGMCOwnerInstallOne(cls,@"getDouble:",(IMP)RYGMCOwnerDouble,&gRYGMCUpDouble,'D',"P");
+    installed |= RYGMCOwnerInstallOne(cls,@"getDouble:withDefault:",(IMP)RYGMCOwnerDoubleDef,&gRYGMCUpDoubleDef,'D',"PD");
+    installed |= RYGMCOwnerInstallOne(cls,@"getDouble:withOptions:",(IMP)RYGMCOwnerDoubleOpts,&gRYGMCUpDoubleOpts,'D',"P@");
+    installed |= RYGMCOwnerInstallOne(cls,@"getDouble:withOptions:withDefault:",(IMP)RYGMCOwnerDoubleOptsDef,&gRYGMCUpDoubleOptsDef,'D',"P@D");
+    installed |= RYGMCOwnerInstallOne(cls,@"getString:",(IMP)RYGMCOwnerString,&gRYGMCUpString,'@',"P");
+    installed |= RYGMCOwnerInstallOne(cls,@"getString:withDefault:",(IMP)RYGMCOwnerStringDef,&gRYGMCUpStringDef,'@',"P@");
+    installed |= RYGMCOwnerInstallOne(cls,@"getString:withOptions:",(IMP)RYGMCOwnerStringOpts,&gRYGMCUpStringOpts,'@',"P@");
+    installed |= RYGMCOwnerInstallOne(cls,@"getString:withOptions:withDefault:",(IMP)RYGMCOwnerStringOptsDef,&gRYGMCUpStringOptsDef,'@',"P@@");
+    if (installed) atomic_store_explicit(&gRYGMCHooksInstalled, true, memory_order_release);
 }
 
 static void RYGMCOwnerImageDidLoad(const struct mach_header *header, intptr_t slide) {
     (void)header; (void)slide;
-    if (gRYGMCHookOwnerActive && RYGMCOwnerShouldRunFast()) RYGMCOwnerSchedule();
+    if (!RYGMCOwnerShouldRunFast() || atomic_load_explicit(&gRYGMCHooksInstalled, memory_order_acquire)) return;
+    // O(1) late-load check. No disk parsing and no main-queue fan-out.
+    if (objc_lookUpClass("FBMobileConfigContextManager") || objc_lookUpClass("IGMobileConfigContextManager"))
+        RYGMCOwnerInstallHooks();
 }
 
 @implementation RYGMobileConfig (RYGMobileConfigHookOwner)
@@ -291,9 +327,11 @@ static void RYGMCOwnerImageDidLoad(const struct mach_header *header, intptr_t sl
 + (void)load {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        RYGMCPublishSnapshot(RYGMCLoadDiskSnapshot());
-        // Capture the native upstream as early as possible, before the legacy
-        // Logos MobileConfig constructor gets a chance to wrap the same getter.
+        gRYGMCPreferenceEnabledAtLoad = [RYGUtils getBoolPref:@"ryg_metaconfig_enabled"];
+        RYGMCHotLoadDiskSnapshotOnce();
+        RYGMCHotRefreshShouldRun();
+        // Capture native IMPs before the legacy Logos constructor. The legacy
+        // constructor is gated separately during bootstrap so it cannot stack.
         if (RYGMCOwnerShouldRunFast()) RYGMCOwnerInstallHooks();
 
         Method setOriginal = class_getInstanceMethod(self, @selector(setOverride:for:));
@@ -311,9 +349,8 @@ static void RYGMCOwnerImageDidLoad(const struct mach_header *header, intptr_t sl
 - (BOOL)ryg_owner_setOverride:(id)value for:(RYGMCParam *)param {
     BOOL success = [self ryg_owner_setOverride:value for:param];
     if (success && param.paramID) {
-        RYGMCCacheSet(param.paramID, value);
-        gRYGMCHookOwnerActive = YES;
-        RYGMCOwnerSchedule();
+        RYGMCHotSet(param.paramID, value);
+        RYGMCOwnerInstallHooks();
     }
     return success;
 }
@@ -321,35 +358,25 @@ static void RYGMCOwnerImageDidLoad(const struct mach_header *header, intptr_t sl
 - (void)ryg_owner_clearOverrideFor:(RYGMCParam *)param {
     unsigned long long pid = param.paramID;
     [self ryg_owner_clearOverrideFor:param];
-    if (pid) RYGMCCacheSet(pid, nil);
+    if (pid) RYGMCHotSet(pid, nil);
 }
 
 - (void)ryg_owner_resetAllOverrides {
     [self ryg_owner_resetAllOverrides];
-    RYGMCCacheClear();
+    RYGMCHotClear();
 }
 
 @end
 
 __attribute__((constructor(110))) static void RYGInstallMobileConfigHookOwner(void) {
-    @autoreleasepool {
-        if (!gRYGMCCachedOverrides) RYGMCPublishSnapshot(RYGMCLoadDiskSnapshot());
-        gRYGMCHookOwnerActive = YES;
-        if (RYGMCOwnerShouldRunFast()) RYGMCOwnerInstallHooks();
-    }
+    if (!RYGMCOwnerShouldRunFast()) return;
+    if (!atomic_load_explicit(&gRYGMCHooksInstalled, memory_order_acquire)) RYGMCOwnerInstallHooks();
+    if (!atomic_load_explicit(&gRYGMCHooksInstalled, memory_order_acquire))
+        _dyld_register_func_for_add_image(RYGMCOwnerImageDidLoad);
 
-    _dyld_register_func_for_add_image(RYGMCOwnerImageDidLoad);
+    // One post-constructor reassertion only. It is cheap and protects against a
+    // third-party/late tweak wrapping these exact getters after +load.
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-        [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
-            gRYGMCHookOwnerActive = YES;
-            if (RYGMCOwnerShouldRunFast()) RYGMCOwnerSchedule();
-        }];
-        [center addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
-            gRYGMCHookOwnerActive = NO;
-        }];
-        // Run once after all constructors. If the legacy Logos hook installed
-        // after our early capture, this puts the RAM-only owner back on top.
-        if (RYGMCOwnerShouldRunFast()) RYGMCOwnerSchedule();
+        if (RYGMCOwnerShouldRunFast()) RYGMCOwnerInstallHooks();
     });
 }
