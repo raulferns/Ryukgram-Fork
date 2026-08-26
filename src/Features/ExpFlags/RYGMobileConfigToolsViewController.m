@@ -28,15 +28,25 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory];
+    (void)[RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory];
+}
+
+- (BOOL)syncNativeOrShowError:(NSString *)operation {
+    RYGMobileConfig *mobileConfig = RYGMobileConfig.shared;
+    BOOL success = [mobileConfig ryg_syncPersistedJSONToNativeDataDirectory];
+    NSString *path = [mobileConfig ryg_nativeOverridesJSONPath];
+    if (success && path.length) return YES;
+
+    NSString *message = path.length
+        ? [NSString stringWithFormat:@"%@ failed to round-trip %@", operation ?: @"MobileConfig sync", path]
+        : [NSString stringWithFormat:@"%@ could not resolve one unambiguous App Group Documents/mobileconfig/<user>.data directory. No fake path was written.", operation ?: @"MobileConfig sync"];
+    [RYGUtils showErrorHUDWithDescription:message];
+    return NO;
 }
 
 - (void)rebuildSections {
     __weak typeof(self) weakSelf = self;
 
-    // One browser only. It joins id_name_mapping by (configNumber,paramIndex),
-    // edits the canonical mc_overrides document for every mapped row, and also
-    // applies immediately when a validated native PID/type exists.
     RYGSetting *browser = [RYGSetting navigationCellWithTitle:@"Browser"
                                                      subtitle:@""
                                                          icon:[RYGSymbol symbolWithName:@"sliders"]
@@ -60,12 +70,14 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
                                                              icon:[RYGSymbol symbolWithName:@"share"]
                                                            action:^{ [weakSelf exportOverrides]; }];
     RYGSetting *applyOverrides = [RYGSetting buttonCellWithTitle:@"Apply active overrides"
-                                                        subtitle:@""
+                                                        subtitle:@"Write + verify native App Group mc_overrides.json"
                                                             icon:[RYGSymbol symbolWithName:@"arrow.clockwise"]
                                                           action:^{
-        [RYGMobileConfig.shared reapplyOverridesToNativeTable];
-        [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory];
-        [RYGUtils showToastForDuration:1.0 title:@"Overrides applied" subtitle:nil];
+        RYGMobileConfig *mobileConfig = RYGMobileConfig.shared;
+        [mobileConfig reapplyOverridesToNativeTable];
+        if (![weakSelf syncNativeOrShowError:@"Apply active overrides"]) return;
+        NSString *path = [mobileConfig ryg_nativeOverridesJSONPath];
+        [RYGUtils showToastForDuration:1.5 title:@"Overrides applied + verified" subtitle:path.lastPathComponent ?: @"mc_overrides.json"];
     }];
     RYGSetting *clearOverrides = [RYGSetting buttonCellWithTitle:@"Clear overrides"
                                                         subtitle:@""
@@ -73,10 +85,15 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
                                                           action:^{ [weakSelf confirmClearOverrides]; }];
     clearOverrides.titleColor = UIColor.systemRedColor;
 
+    NSString *nativePath = [RYGMobileConfig.shared ryg_nativeOverridesJSONPath];
+    NSString *footer = nativePath.length
+        ? [NSString stringWithFormat:@"Native target: %@", nativePath]
+        : @"Native target unresolved. RyukGram writes only after a real entitled App Group / existing <user>.data directory is resolved.";
+
     [self applySettingSections:@[
         [RYGSettingsViewController sectionWithHeader:nil footer:nil rows:@[browser]],
         [RYGSettingsViewController sectionWithHeader:@"Names" footer:nil rows:@[importNames, exportNames]],
-        [RYGSettingsViewController sectionWithHeader:@"Overrides" footer:nil rows:@[importOverrides, exportOverrides, applyOverrides, clearOverrides]],
+        [RYGSettingsViewController sectionWithHeader:@"Overrides" footer:footer rows:@[importOverrides, exportOverrides, applyOverrides, clearOverrides]],
     ]];
 }
 
@@ -138,7 +155,7 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
             [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"Mapping import failed"];
             return;
         }
-        [mobileConfig ryg_syncPersistedJSONToNativeDataDirectory];
+        if (![self syncNativeOrShowError:@"Mapping import"]) return;
         NSUInteger configs = 0, params = 0;
         for (RYGMCConfig *config in mobileConfig.allConfigs) {
             if (config.name.length) configs++;
@@ -147,6 +164,7 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
         [RYGUtils showToastForDuration:1.5
                                 title:self.pendingNameMappingMode == RYGMCNameMappingImportModeReplace ? @"Mapping replaced" : @"Mapping merged"
                              subtitle:[NSString stringWithFormat:@"%lu configs · %lu params", (unsigned long)configs, (unsigned long)params]];
+        [self rebuildSections];
         return;
     }
 
@@ -156,8 +174,9 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
             [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"Override import failed"];
             return;
         }
-        [mobileConfig ryg_syncPersistedJSONToNativeDataDirectory];
-        [RYGUtils showToastForDuration:1.2 title:@"Overrides imported" subtitle:[NSString stringWithFormat:@"%lu applied", (unsigned long)applied]];
+        if (![self syncNativeOrShowError:@"Override import"]) return;
+        [RYGUtils showToastForDuration:1.5 title:@"Overrides imported + verified" subtitle:[NSString stringWithFormat:@"%lu applied", (unsigned long)applied]];
+        [self rebuildSections];
     }
 }
 
@@ -178,7 +197,7 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
 }
 
 - (void)exportNameMapping {
-    [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory];
+    if (![self syncNativeOrShowError:@"Export mapping"]) return;
     NSError *error = nil;
     NSData *data = [RYGMobileConfig.shared ryg_exportNameMappingData:&error];
     if (!data.length) {
@@ -189,7 +208,7 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
 }
 
 - (void)exportOverrides {
-    [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory];
+    if (![self syncNativeOrShowError:@"Export overrides"]) return;
     NSError *error = nil;
     NSData *data = [RYGMobileConfig.shared ryg_exportOverridesData:&error];
     if (!data.length) {
@@ -205,7 +224,7 @@ typedef NS_ENUM(NSInteger, RYGMCImportOperation) {
     __weak typeof(self) weakSelf = self;
     [alert addAction:[UIAlertAction actionWithTitle:@"Clear" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
         [RYGMobileConfig.shared resetAllOverrides];
-        [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory];
+        if (![weakSelf syncNativeOrShowError:@"Clear overrides"]) return;
         [weakSelf rebuildSections];
     }]];
     [self presentViewController:alert animated:YES completion:nil];

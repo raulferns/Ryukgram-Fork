@@ -1,5 +1,7 @@
 #import "RYGDeveloperHubViewController.h"
 #import "RYGDeveloperTopicViewController.h"
+#import "RYGDeveloperFeatureCatalog.h"
+#import "RYGDeveloperFeatureCatalogViewController.h"
 #import "RYGWordmarkViewController.h"
 #import "RYGFastRuntimeBrowserViewController.h"
 #import "RYGEasyGatingViewController.h"
@@ -13,8 +15,11 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    // Opening Developer is presentation-only. Persisted state has dedicated
-    // owners and never performs restore/discovery from this screen.
+    // Developer-only prewarm: this is intentionally not part of app cold start.
+    // startIfNeeded installs only a cheap dyld generation marker and schedules
+    // known-owner scans on a private utility queue. No runtime-wide class walk
+    // happens until a catalogue domain is explicitly opened.
+    [[RYGDeveloperFeatureCatalog sharedCatalog] startIfNeeded];
     [self rebuildSections];
     RYGLiquidGlassApplyToViewController(self);
 }
@@ -23,6 +28,7 @@
     RYGSetting *wordmark = [RYGSetting navigationCellWithTitle:@"IGWordMark" subtitle:nil icon:[RYGSymbol symbolWithName:@"instagram"] viewController:[RYGWordmarkViewController new]];
     RYGSetting *easyGating = [RYGSetting navigationCellWithTitle:@"Easy Gating Internal" subtitle:@"Final mapped IDs observed live" icon:[RYGSymbol symbolWithName:@"key"] viewController:[RYGEasyGatingViewController new]];
     RYGSetting *mobileConfig = [RYGSetting navigationCellWithTitle:@"MobileConfig" subtitle:@"Live table + id_name_mapping + native overrides" icon:[RYGSymbol symbolWithName:@"sliders"] viewController:[RYGMobileConfigToolsViewController new]];
+    RYGSetting *liveCatalog = [RYGSetting navigationCellWithTitle:@"Live Feature Catalog" subtitle:@"Prism, Aura/IGPlus, Stories, Glass and internal domains · no Runtime Browser required" icon:[RYGSymbol symbolWithName:@"list"] viewController:[RYGDeveloperFeatureCatalogViewController new]];
     RYGSetting *prism = [RYGSetting navigationCellWithTitle:@"Prism UI" subtitle:@"Exact setters + on-demand IGDS/BSLDS runtime discovery" icon:[RYGSymbol symbolWithName:@"layout"] viewController:[[RYGDeveloperTopicViewController alloc] initWithSurface:RYGDeveloperRuntimeSurfacePrism]];
     RYGSetting *stories = [RYGSetting navigationCellWithTitle:@"Story Tray / Story Grid" subtitle:@"Exact persistent Story Tray and Dynamic Story Grid gates" icon:[RYGSymbol symbolWithName:@"rectangle.stack"] viewController:[[RYGDeveloperTopicViewController alloc] initWithSurface:RYGDeveloperRuntimeSurfaceStories]];
     RYGSetting *glass = [RYGSetting navigationCellWithTitle:@"Liquid Glass Throwback" subtitle:@"Persistent native Swizzle, Throwback Chrome and Navigation helpers" icon:[RYGSymbol symbolWithName:@"interface"] viewController:[[RYGDeveloperTopicViewController alloc] initWithSurface:RYGDeveloperRuntimeSurfaceLiquidGlass]];
@@ -35,7 +41,7 @@
 
     [self applySettingSections:@[
         [RYGSettingsViewController sectionWithHeader:nil footer:nil rows:@[wordmark, easyGating, mobileConfig]],
-        [RYGSettingsViewController sectionWithHeader:@"Native / live surfaces" footer:@"Startup only replays exact persisted identities. Opening Developer never performs restore; Runtime and MobileConfig discovery require an explicit action." rows:@[prism, stories, glass, internalOnly, bugReport, settingsRows, dogfood]],
+        [RYGSettingsViewController sectionWithHeader:@"Native / live surfaces" footer:@"The catalogue is independent from Runtime Browser. Known owners prewarm only after Developer opens; broad discovery runs on a utility queue only for the selected domain." rows:@[liveCatalog, prism, stories, glass, internalOnly, bugReport, settingsRows, dogfood]],
         [RYGSettingsViewController sectionWithHeader:nil footer:nil rows:@[metaLocal, runtime]],
     ]];
 }

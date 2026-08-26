@@ -15,8 +15,10 @@
 #include <stdatomic.h>
 #include <string.h>
 
-// One MobileConfig owner: one getter-hook chain, one runtime metadata parser,
-// one name catalog, and the framework's native StartupConfigs override API.
+// Core MobileConfig metadata/catalog implementation. Getter ownership belongs
+// exclusively to RYGMobileConfigHookOwner.m. The diagnostic trampoline code
+// below remains available to the compiler for explicit debugging, but its
+// legacy constructor is intentionally disabled and never enters cold launch.
 static __weak id gManager;
 static NSMutableDictionary<NSNumber *, id> *gManagersByUnit;
 static NSMutableDictionary<NSNumber *, NSValue *> *gCallSites;
@@ -85,7 +87,7 @@ static void rygRecordCaller(unsigned long long pid) {
     if (!external) return; pthread_mutex_lock(&gLock); if (!gCallSites) gCallSites = [NSMutableDictionary dictionary]; if (!gCallSites[@(pid)]) gCallSites[@(pid)] = [NSValue valueWithPointer:external]; pthread_mutex_unlock(&gLock);
 }
 
-#pragma mark - Single typed pass-through getter chain
+#pragma mark - Legacy diagnostic typed chain (not installed at startup)
 #define RYG_CAPTURE() do { rygCaptureManager(self, pid); rygRecordCaller(pid); } while (0)
 static BOOL (*orig_getBool)(id, SEL, unsigned long long);
 static BOOL new_getBool(id self, SEL cmd, unsigned long long pid) { RYG_CAPTURE(); id v = rygActiveOverride(pid); return v ? [v boolValue] : (orig_getBool ? orig_getBool(self, cmd, pid) : NO); }
@@ -170,17 +172,11 @@ static id new_getStringOptsDef(id self, SEL cmd, unsigned long long pid, id opts
     char ret[32] = {0};
     method_getReturnType(method, ret, sizeof(ret));
     if (*ret != '@') return nil;
-
     id value = ((id (*)(id, SEL))objc_msgSend)(manager, selector);
     NSString *path = [value isKindOfClass:NSURL.class] ? [(NSURL *)value path] : ([value isKindOfClass:NSString.class] ? value : nil);
     if ([path hasPrefix:@"file://"]) path = [NSURL URLWithString:path].path;
     path = path.stringByStandardizingPath;
     if (!path.length) return nil;
-
-    // The framework's getOverridesTablePath is the native authority. In the
-    // current FB/IG MobileConfig implementation it resolves the mc_overrides
-    // table inside Documents/mobileconfig/<user>.data. Accept either the table
-    // path or the data directory itself, but never synthesize sessionless paths.
     if ([path.pathExtension.lowercaseString isEqualToString:@"data"]) return path;
     NSString *directory = path.stringByDeletingLastPathComponent;
     return [directory.pathExtension.lowercaseString isEqualToString:@"data"] ? directory : nil;
@@ -263,9 +259,6 @@ static BOOL rygMethodIsVoidQ(Method m) { if (!m || method_getNumberOfArguments(m
 - (BOOL)setOverride:(id)value for:(RYGMCParam *)param {
     if (!param.runtimeBacked || !param.paramID || !RYGMCTypeIsRuntimeValue(param.type)) return NO; BOOL valid = param.type == RYGMCTypeString ? [value isKindOfClass:NSString.class] : [value isKindOfClass:NSNumber.class]; if (!valid) return NO;
     unsigned long long pid = rygCanonicalPid(param.paramID);
-    // Getter interception is the authoritative runtime path. Persist and arm it
-    // even when StartupConfigs is not instantiated yet; native table sync is a
-    // best-effort mirror, not a prerequisite for an override to exist.
     rygActivateOverride(pid,value); _overrides[@(pid)] = value; [self saveOverrides];
     (void)[self writeNativeBothUnitsForPid:pid value:value];
     return YES;
@@ -288,8 +281,6 @@ static BOOL rygMethodIsVoidQ(Method m) { if (!m || method_getNumberOfArguments(m
     NSMutableDictionary *disk = [NSMutableDictionary dictionary];
     for (NSNumber *k in _overrides) disk[k.stringValue] = _overrides[k];
     [disk writeToFile:[self storePathFor:@"mc_overrides.plist"] atomically:YES];
-    // A switch must only update the native PID + tiny plist synchronously.
-    // Canonical JSON is a backup/export concern and is coalesced off-main.
     static atomic_uint_fast64_t generation = 0;
     uint64_t mine = atomic_fetch_add_explicit(&generation, 1, memory_order_relaxed) + 1;
     RYGMobileConfig *target = self;
@@ -304,20 +295,9 @@ static BOOL rygMethodIsVoidQ(Method m) { if (!m || method_getNumberOfArguments(m
 - (void)markLaunchStable { }
 @end
 
-#pragma mark - Hook installation
-static const char *rygMCUnqualifiedType(const char *type) { while (type && strchr("rnNoORV",*type)) type++; return type; }
-static BOOL rygMCTypeMatches(const char *raw, char expected) { const char *t = rygMCUnqualifiedType(raw); if (!t || !*t) return NO; switch (expected) { case 'P': return *t == 'Q' || *t == 'q' || (*t == '{' && (strstr(t,"=Q}") || strstr(t,"=q}"))); case 'B': return *t == 'B' || *t == 'c' || *t == 'C'; case 'Q': return *t == 'q' || *t == 'Q'; case 'D': return *t == 'd'; case '@': return *t == '@'; default: return NO; } }
-static BOOL rygMCMethodMatches(Method m, char ret, const char *args) { if (!m || !args || method_getNumberOfArguments(m) != strlen(args) + 2) return NO; char e[128] = {0}; method_getReturnType(m,e,sizeof(e)); if (!rygMCTypeMatches(e,ret)) return NO; for (unsigned int i = 0; args[i]; i++) { memset(e,0,sizeof(e)); method_getArgumentType(m,i+2,e,sizeof(e)); if (!rygMCTypeMatches(e,args[i])) return NO; } return YES; }
-static BOOL rygHookMC(Class cls, NSString *name, IMP replacement, IMP *original, char ret, const char *args) { if (!cls || !replacement || !original || *original) return original && *original; SEL selector = NSSelectorFromString(name); Method method = class_getInstanceMethod(cls,selector); if (!rygMCMethodMatches(method,ret,args)) return NO; MSHookMessageEx(cls,selector,replacement,original); return *original != NULL; }
-static NSUInteger rygMCScore(Class cls) { NSUInteger score = 0; for (NSString *name in @[@"getBool:",@"getInt64:",@"getDouble:",@"getString:"]) if (class_getInstanceMethod(cls,NSSelectorFromString(name))) score++; return score; }
-static void rygInstallMobileConfigHooks(void) {
-    Class fb = NSClassFromString(@"FBMobileConfigContextManager"), ig = NSClassFromString(@"IGMobileConfigContextManager"); Class cls = rygMCScore(fb) >= rygMCScore(ig) ? fb : ig; if (!cls) return;
-    rygHookMC(cls,@"getBool:",(IMP)new_getBool,(IMP *)&orig_getBool,'B',"P"); rygHookMC(cls,@"getBool:withDefault:",(IMP)new_getBoolDef,(IMP *)&orig_getBoolDef,'B',"PB"); rygHookMC(cls,@"getBool:withOptions:",(IMP)new_getBoolOpts,(IMP *)&orig_getBoolOpts,'B',"P@"); rygHookMC(cls,@"getBool:withOptions:withDefault:",(IMP)new_getBoolOptsDef,(IMP *)&orig_getBoolOptsDef,'B',"P@B");
-    rygHookMC(cls,@"getInt64:",(IMP)new_getInt,(IMP *)&orig_getInt,'Q',"P"); rygHookMC(cls,@"getInt64:withDefault:",(IMP)new_getIntDef,(IMP *)&orig_getIntDef,'Q',"PQ"); rygHookMC(cls,@"getInt64:withOptions:",(IMP)new_getIntOpts,(IMP *)&orig_getIntOpts,'Q',"P@"); rygHookMC(cls,@"getInt64:withOptions:withDefault:",(IMP)new_getIntOptsDef,(IMP *)&orig_getIntOptsDef,'Q',"P@Q");
-    rygHookMC(cls,@"getDouble:",(IMP)new_getDouble,(IMP *)&orig_getDouble,'D',"P"); rygHookMC(cls,@"getDouble:withDefault:",(IMP)new_getDoubleDef,(IMP *)&orig_getDoubleDef,'D',"PD"); rygHookMC(cls,@"getDouble:withOptions:",(IMP)new_getDoubleOpts,(IMP *)&orig_getDoubleOpts,'D',"P@"); rygHookMC(cls,@"getDouble:withOptions:withDefault:",(IMP)new_getDoubleOptsDef,(IMP *)&orig_getDoubleOptsDef,'D',"P@D");
-    rygHookMC(cls,@"getString:",(IMP)new_getString,(IMP *)&orig_getString,'@',"P"); rygHookMC(cls,@"getString:withDefault:",(IMP)new_getStringDef,(IMP *)&orig_getStringDef,'@',"P@"); rygHookMC(cls,@"getString:withOptions:",(IMP)new_getStringOpts,(IMP *)&orig_getStringOpts,'@',"P@"); rygHookMC(cls,@"getString:withOptions:withDefault:",(IMP)new_getStringOptsDef,(IMP *)&orig_getStringOptsDef,'@',"P@@");
-}
-static BOOL gInstallScheduled;
-static void rygScheduleInstall(void) { @synchronized(RYGMobileConfig.class) { if (gInstallScheduled) return; gInstallScheduled = YES; } dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.1 * NSEC_PER_SEC)),dispatch_get_main_queue(), ^{ @synchronized(RYGMobileConfig.class) { gInstallScheduled = NO; } rygInstallMobileConfigHooks(); }); }
-static void rygImageDidLoad(const struct mach_header *header, intptr_t slide) { (void)header; (void)slide; rygScheduleInstall(); }
-%ctor { if (![RYGUtils getBoolPref:@"ryg_metaconfig_enabled"]) return; (void)RYGMobileConfig.shared; rygInstallMobileConfigHooks(); _dyld_register_func_for_add_image(rygImageDidLoad); }
+// The old MSHookMessageEx getter installer and its dyld callback were removed
+// from the startup path after binary analysis of build 1338 proved all sixteen
+// getter trampolines called rygRecordCaller(), which executes backtrace/dladdr,
+// mutexes and Objective-C dictionaries. RYGMobileConfigHookOwner.m is the only
+// runtime getter owner now.
+%ctor { }
