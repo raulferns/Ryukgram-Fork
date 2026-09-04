@@ -266,18 +266,6 @@ static BOOL sDidShowSettings;
 %end
 %end
 
-// MARK: - Debug / bug report blocking
-
-%group RYGDebugBlockGroup
-%hook IGWindow
-- (void)showDebugMenu {}
-%end
-
-%hook IGBugReportUploader
-- (id)initWithNetworker:(id)arg1 pandoGraphQLService:(id)arg2 analyticsLogger:(id)arg3 userDefaults:(id)arg4 launcherSetProvider:(id)arg5 shouldPersistLastBugReportId:(id)arg6 {return nil;}
-%end
-%end
-
 // MARK: - Screenshot blocking
 
 %group RYGScreenshotBlockGroup
@@ -741,7 +729,6 @@ static void rygInstallLiquidGlassHooks(void) {
 	}
 
 	%init(RYGAppLifecycleGroup);
-	%init(RYGDebugBlockGroup);
 	%init(RYGScreenshotBlockGroup,
 		IGDirectVisualMessageViewerSession = NSClassFromString(@"_TtC34IGDirectVisualMessageViewerSession34IGDirectVisualMessageViewerSession") ?: NSClassFromString(@"IGDirectVisualMessageViewerSession"),
 		IGDirectVisualMessageReplayService = NSClassFromString(@"_TtC31IGDirectVisualMessageServiceKit34IGDirectVisualMessageReplayService") ?: NSClassFromString(@"IGDirectVisualMessageReplayService"),

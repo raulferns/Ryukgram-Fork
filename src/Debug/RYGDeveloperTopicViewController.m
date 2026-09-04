@@ -27,16 +27,11 @@ static IMP gRYGBugMenuOriginal;
 static IMP gRYGBugMenuLegacyOriginal;
 static IMP gRYGDogfoodSettingsInitOriginal;
 static IMP gRYGDogfoodSettingsOpenOriginal;
-static IMP gRYGDogfoodLauncherOriginal;
 static IMP gRYGPrismSetterOriginal;
 static IMP gRYGRedesignSetterOriginal;
 
 static id gRYGDogfoodConfig;
 static id gRYGDogfoodUserSession;
-static id gRYGDogfoodLauncherClient;
-static id gRYGDogfoodLauncherSession;
-static NSString *gRYGDogfoodLauncherName;
-static NSDictionary *gRYGDogfoodLauncherParameters;
 static NSInteger gRYGPrismSetterMode = -1;
 static NSInteger gRYGRedesignSetterMode = -1;
 
@@ -192,7 +187,6 @@ static void RYGInstallBugMenuHooks(void) {
 
 typedef id (*RYGDogfoodSettingsInitFn)(id, SEL, id, id);
 typedef void (*RYGDogfoodSettingsOpenFn)(id, SEL, id, id, id);
-typedef BOOL (*RYGDogfoodLauncherFn)(id, SEL, id, id, id);
 
 static id RYGDogfoodSettingsInit(id self, SEL cmd, id config, id userSession) {
     if (config) gRYGDogfoodConfig = config;
@@ -206,15 +200,6 @@ static void RYGDogfoodSettingsOpen(id self, SEL cmd, id config, id viewControlle
     if (userSession) gRYGDogfoodUserSession = userSession;
     RYGDogfoodSettingsOpenFn original = (RYGDogfoodSettingsOpenFn)gRYGDogfoodSettingsOpenOriginal;
     if (original) original(self, cmd, config, viewController, userSession);
-}
-
-static BOOL RYGDogfoodLauncherCapture(id self, SEL cmd, id userSession, id launcherName, id parameters) {
-    if (self) gRYGDogfoodLauncherClient = self;
-    if (userSession) gRYGDogfoodLauncherSession = userSession;
-    if ([launcherName isKindOfClass:NSString.class]) gRYGDogfoodLauncherName = [launcherName copy];
-    if ([parameters isKindOfClass:NSDictionary.class]) gRYGDogfoodLauncherParameters = [parameters copy];
-    RYGDogfoodLauncherFn original = (RYGDogfoodLauncherFn)gRYGDogfoodLauncherOriginal;
-    return original ? original(self, cmd, userSession, launcherName, parameters) : NO;
 }
 
 static void RYGInstallDogfoodCaptureHooks(void) {
@@ -235,15 +220,6 @@ static void RYGInstallDogfoodCaptureHooks(void) {
         if (method && method_getNumberOfArguments(method) == 5 && RYGDevMethodReturns(method, 'v') &&
             RYGDevArgumentMatches(method, 2, '@') && RYGDevArgumentMatches(method, 3, '@') && RYGDevArgumentMatches(method, 4, '@'))
             MSHookMessageEx(meta, selector, (IMP)RYGDogfoodSettingsOpen, &gRYGDogfoodSettingsOpenOriginal);
-    }
-
-    Class launcher = objc_lookUpClass("_TtC35IGDogfoodingAssistantLauncherClient35IGDogfoodingAssistantLauncherClient");
-    if (!gRYGDogfoodLauncherOriginal && launcher) {
-        SEL selector = NSSelectorFromString(@"overrideLauncherWithUserSession:launcherName:parametersToValues:");
-        Method method = RYGDevDirectMethod(launcher, selector);
-        if (method && method_getNumberOfArguments(method) == 5 && RYGDevMethodReturns(method, 'B') &&
-            RYGDevArgumentMatches(method, 2, '@') && RYGDevArgumentMatches(method, 3, '@') && RYGDevArgumentMatches(method, 4, '@'))
-            MSHookMessageEx(launcher, selector, (IMP)RYGDogfoodLauncherCapture, &gRYGDogfoodLauncherOriginal);
     }
 }
 
@@ -405,6 +381,37 @@ static UIViewController *RYGTopViewController(void) {
     return top;
 }
 
+static UIWindow *RYGActiveWindow(void) {
+    UIViewController *top = RYGTopViewController();
+    if (top.view.window) return top.view.window;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) if (window.isKeyWindow) return window;
+    }
+    return nil;
+}
+
+static BOOL RYGOpenNativeDebugMenu(void) {
+    // IGWindow owns the real dependency graph (device/user sessions, logger,
+    // endpoint and BugReport uploader). Calling it is the natural wiring and
+    // avoids constructing a partially initialized menu controller ourselves.
+    RYGInstallBugMenuHooks();
+    UIWindow *window = RYGActiveWindow();
+    if (!window) return NO;
+    SEL entrySelector = NSSelectorFromString(@"showDebugMenuWithEntryPoint:");
+    Method entryMethod = class_getInstanceMethod([window class], entrySelector);
+    if (entryMethod && method_getNumberOfArguments(entryMethod) == 3 &&
+        RYGDevMethodReturns(entryMethod, 'v') && RYGDevArgumentMatches(entryMethod, 2, 'Q')) {
+        ((void (*)(id, SEL, long long))objc_msgSend)(window, entrySelector, 0);
+        return YES;
+    }
+    SEL selector = NSSelectorFromString(@"showDebugMenu");
+    Method method = class_getInstanceMethod([window class], selector);
+    if (!method || method_getNumberOfArguments(method) != 2 || !RYGDevMethodReturns(method, 'v')) return NO;
+    ((void (*)(id, SEL))objc_msgSend)(window, selector);
+    return YES;
+}
+
 static BOOL RYGOpenDogfoodSettings(void) {
     RYGInstallDogfoodCaptureHooks();
     if (!gRYGDogfoodConfig || !gRYGDogfoodUserSession) return NO;
@@ -431,18 +438,10 @@ static BOOL RYGOpenDirectNotesDogfood(void) {
 }
 
 static BOOL RYGOpenDogfoodSessionBrowser(void) {
-    UIViewController *top = RYGTopViewController();
-    id session = gRYGDogfoodLauncherSession ?: gRYGDogfoodUserSession;
-    if (!top || !gRYGDogfoodLauncherClient || !session) return NO;
-    SEL selector = NSSelectorFromString(@"sessionBrowserViewController:userSession:");
-    Method method = RYGDevDirectMethod([gRYGDogfoodLauncherClient class], selector);
-    if (!method || method_getNumberOfArguments(method) != 4 || !RYGDevMethodReturns(method, '@') ||
-        !RYGDevArgumentMatches(method, 2, '@') || !RYGDevArgumentMatches(method, 3, '@')) return NO;
-    UIViewController *browser = ((id (*)(id, SEL, id, id))objc_msgSend)(gRYGDogfoodLauncherClient, selector, top, session);
-    if (![browser isKindOfClass:UIViewController.class]) return NO;
-    if (top.navigationController) [top.navigationController pushViewController:browser animated:YES];
-    else [top presentViewController:[[UINavigationController alloc] initWithRootViewController:browser] animated:YES completion:nil];
-    return YES;
+    // sessionBrowserViewController(userSession:) is Swift-only in this build and
+    // has no Objective-C selector. Its supported provider/socket is constructed
+    // by IGWindow's native Bug Report menu, so route through that owner.
+    return RYGOpenNativeDebugMenu();
 }
 
 #pragma mark - Controller
@@ -544,20 +543,23 @@ static BOOL RYGOpenDogfoodSessionBrowser(void) {
         }
         case RYGDeveloperRuntimeSurfaceInternalOnly:
             [rows addObject:@{@"kind":@"internal", @"title":@"Expose Internal Settings", @"subtitle":@"Exact IGBugReportMenu initializer visibility arguments"}];
+            [rows addObject:@{@"kind":@"action", @"action":@"nativeDebug", @"title":@"Open native Debug / Bug Report menu", @"subtitle":@"IGWindow builds the real device + user session dependency graph"}];
             [rows addObject:@{@"kind":@"browser", @"title":@"IG-only / Internal-only Runtime", @"query":@"igonly|ig-only|internalonly|internal-only|employee|internal"}];
             break;
         case RYGDeveloperRuntimeSurfaceDirectDogfood:
             [rows addObject:@{@"kind":@"dogfood", @"title":@"Global Dogfooding Mode", @"subtitle":@"Exact native hooks + EasyGating; MobileConfig is applied only on this explicit action"}];
+            [rows addObject:@{@"kind":@"action", @"action":@"nativeDebug", @"title":@"Open native Dogfooding / Debug menu", @"subtitle":@"Natural provider wiring through IGWindow"}];
             [rows addObject:@{@"kind":@"action", @"action":@"dogfoodOpen", @"title":@"Open Dogfooding Settings"}];
             [rows addObject:@{@"kind":@"action", @"action":@"directNotes", @"title":@"Open Direct Notes Dogfooding"}];
-            [rows addObject:@{@"kind":@"action", @"action":@"sessions", @"title":@"Dogfooding Assistant Sessions"}];
+            [rows addObject:@{@"kind":@"action", @"action":@"sessions", @"title":@"Dogfooding Assistant Sessions", @"subtitle":@"Opens the native provider/socket row; no fabricated ObjC selector"}];
             [rows addObject:@{@"kind":@"action", @"action":@"mcApply", @"title":@"Apply resolved dogfood MobileConfig now", @"subtitle":@"On-demand; no startup catalogue scan"}];
             [rows addObject:@{@"kind":@"action", @"action":@"mcRestore", @"title":@"Restore RyukGram-owned dogfood MobileConfig"}];
             [rows addObject:@{@"kind":@"browser", @"title":@"Dogfood / Employee / Internal Runtime", @"query":@"dogfood|employee|internal"}];
             break;
         case RYGDeveloperRuntimeSurfaceBugReport:
             [rows addObject:@{@"kind":@"internal", @"title":@"Expose every Bug Report row", @"subtitle":@"Internal + logged-out + shake + Dogfooding Assistant"}];
-            [rows addObject:@{@"kind":@"action", @"action":@"sessions", @"title":@"Dogfooding Assistant Sessions"}];
+            [rows addObject:@{@"kind":@"action", @"action":@"nativeDebug", @"title":@"Open native Bug Report menu", @"subtitle":@"Uses IGWindow showDebugMenuWithEntryPoint: and the real uploader"}];
+            [rows addObject:@{@"kind":@"action", @"action":@"sessions", @"title":@"Open Dogfooding Assistant provider"}];
             [rows addObject:@{@"kind":@"browser", @"title":@"Bug Report hidden gates", @"query":@"bug|report|dogfood|internal"}];
             [rows addObject:@{@"kind":@"browser", @"title":@"Sandbox runtime", @"query":@"sandbox|foa"}];
             break;
@@ -754,12 +756,20 @@ static BOOL RYGOpenDogfoodSessionBrowser(void) {
     }
     if (![kind isEqualToString:@"action"]) return;
     NSString *action = row[@"action"];
-    if ([action isEqualToString:@"dogfoodOpen"]) {
-        if (!RYGOpenDogfoodSettings()) [RYGUtils showErrorHUDWithDescription:@"Dogfooding Settings context has not been observed yet"];
+    if ([action isEqualToString:@"nativeDebug"]) {
+        if (!RYGOpenNativeDebugMenu()) [RYGUtils showErrorHUDWithDescription:@"IGWindow native Debug menu is unavailable or its ABI changed"];
+    } else if ([action isEqualToString:@"dogfoodOpen"]) {
+        if (!RYGOpenDogfoodSettings()) {
+            if (RYGOpenNativeDebugMenu()) [RYGUtils showToastForDuration:1.4 title:@"Native Dogfooding menu opened" subtitle:@"Its config/session will be captured by the real flow"];
+            else [RYGUtils showErrorHUDWithDescription:@"Native Dogfooding context is unavailable"];
+        }
     } else if ([action isEqualToString:@"directNotes"]) {
-        if (!RYGOpenDirectNotesDogfood()) [RYGUtils showErrorHUDWithDescription:@"Direct Notes dogfood user session has not been observed yet"];
+        if (!RYGOpenDirectNotesDogfood()) {
+            if (RYGOpenNativeDebugMenu()) [RYGUtils showToastForDuration:1.4 title:@"Native Debug menu opened" subtitle:@"Open once to provide the current user session"];
+            else [RYGUtils showErrorHUDWithDescription:@"Current Instagram user session is unavailable"];
+        }
     } else if ([action isEqualToString:@"sessions"]) {
-        if (!RYGOpenDogfoodSessionBrowser()) [RYGUtils showErrorHUDWithDescription:@"Dogfooding Assistant launcher/session has not been observed yet"];
+        if (!RYGOpenDogfoodSessionBrowser()) [RYGUtils showErrorHUDWithDescription:@"Native Dogfooding Assistant provider is unavailable"];
     } else if ([action isEqualToString:@"mcApply"] || [action isEqualToString:@"mcRestore"]) {
         BOOL apply = [action isEqualToString:@"mcApply"];
         NSUInteger available = 0;

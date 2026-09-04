@@ -3,12 +3,12 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Liquid Glass is a presentation concern of RyukGram's own UI. Instagram's
-/// experimental Lucent flags are intentionally kept separate.
+/// Lucent/Prism experiments remain completely separate from this layer.
 FOUNDATION_EXPORT BOOL RYGLiquidGlassIsAvailable(void);
 
-/// Creates a native interactive UIGlassEffect view on iOS 26+, with a material
-/// fallback on older systems and an opaque accessibility fallback when Reduce
-/// Transparency is enabled.
+/// Creates a public UIKit UIGlassEffect surface on iOS 26+, with a system
+/// material fallback on older releases and an opaque accessibility fallback
+/// when Reduce Transparency is enabled.
 FOUNDATION_EXPORT UIVisualEffectView *RYGLiquidGlassView(BOOL interactive,
                                                         BOOL clearStyle,
                                                         UIColor * _Nullable tintColor);
@@ -17,19 +17,24 @@ FOUNDATION_EXPORT UIVisualEffectView *RYGLiquidGlassView(BOOL interactive,
 FOUNDATION_EXPORT void RYGLiquidGlassSetTint(UIVisualEffectView *view,
                                              UIColor * _Nullable tintColor);
 
-/// Uses the SDK 26 glass button configurations while preserving the button's
-/// visible title, image, insets and menu behavior. Older systems keep their
-/// existing configuration.
+/// Uses the SDK 26 public glass button configurations while preserving visible
+/// content and native menu behavior. It never imposes a fixed menu width.
 FOUNDATION_EXPORT void RYGLiquidGlassConfigureButton(UIButton *button,
                                                      BOOL prominent);
 
-/// Creates a compact non-interactive title pill for nested navigation screens.
-/// On iOS 26+ this uses the native Glass button configuration, which gives the
-/// title its own readable material without a second navigation-bar renderer.
+/// Compatibility helper for older RyukGram screens that still assign a custom
+/// titleView. It now returns a plain, single-line label; the actual Liquid Glass
+/// material belongs to UINavigationBar on iOS 26 rather than to a second pill.
 FOUNDATION_EXPORT UIView *RYGLiquidGlassNavigationTitleView(NSString *title);
 
-/// Applies RyukGram's native navigation/control-layer styling. Content remains
-/// on system backgrounds so glass is never stacked behind every table cell.
+/// Configures a RyukGram-owned navigation controller to use system navigation
+/// chrome. When linked against SDK 26.5, UIKit supplies native Liquid Glass to
+/// navigation/tool bars and UIBarButtonItems automatically.
+FOUNDATION_EXPORT void RYGLiquidGlassConfigureNavigationController(UINavigationController *navigationController);
+
+/// Applies the shared RyukGram UI policy. Content stays on semantic system
+/// backgrounds, native navigation chrome owns the glass, and standalone custom
+/// controls use public SDK 26 glass configurations where appropriate.
 FOUNDATION_EXPORT void RYGLiquidGlassApplyToViewController(UIViewController *controller);
 
 /// True for RyukGram-owned controllers (including navigation containers whose

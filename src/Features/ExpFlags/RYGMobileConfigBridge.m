@@ -11,7 +11,6 @@
 @end
 
 static NSString *const kRYGBridgeVerifiedDataLeafKey = @"ryg_mc_verified_native_data_leaf_v1";
-static NSString *const kRYGBridgeInstagramGroupIdentifier = @"group.com.burbn.instagram";
 
 static BOOL RYGBridgeDirectoryExists(NSString *path) {
     if (!path.length) return NO;
@@ -84,24 +83,6 @@ static NSArray<NSURL *> *RYGBridgeUniqueGroupRoots(NSDictionary<NSString *, NSUR
     NSMutableOrderedSet<NSURL *> *roots = [NSMutableOrderedSet orderedSet];
     for (NSURL *url in groups.allValues) if ([url isKindOfClass:NSURL.class] && url.path.length) [roots addObject:url];
     return roots.array;
-}
-
-static NSURL *RYGBridgePreferredWritableGroupRoot(NSDictionary<NSString *, NSURL *> *groups) {
-    NSURL *exact = groups[kRYGBridgeInstagramGroupIdentifier];
-    if (exact.path.length) return exact;
-
-    NSMutableOrderedSet<NSURL *> *instagramRoots = [NSMutableOrderedSet orderedSet];
-    [groups enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSURL *url, BOOL *stop) {
-        (void)stop;
-        NSString *lower = key.lowercaseString ?: @"";
-        if (([lower containsString:@"instagram"] || [lower containsString:@"burbn"]) && url.path.length) {
-            [instagramRoots addObject:url];
-        }
-    }];
-    if (instagramRoots.count == 1) return instagramRoots.firstObject;
-
-    NSArray<NSURL *> *all = RYGBridgeUniqueGroupRoots(groups);
-    return all.count == 1 ? all.firstObject : nil;
 }
 
 static NSArray<NSString *> *RYGBridgeMobileConfigRootsForGroupURL(NSURL *groupURL) {
@@ -187,26 +168,9 @@ static NSString *RYGBridgeResolveDataDirectoryFromCandidate(NSString *candidate)
     NSString *mappingMatch = RYGBridgeUniqueMappingMatch(existing);
     if (mappingMatch.length) return RYGBridgeRememberResolvedDataDirectory(mappingMatch);
 
-    // A missing directory may be recreated only with an exact leaf that came
-    // from the native manager on this or a previous verified launch and one
-    // unambiguous App Group root actually returned for this process.
-    NSURL *writableRoot = leaf.length ? RYGBridgePreferredWritableGroupRoot(groups) : nil;
-    if (writableRoot.path.length) {
-        NSString *mobileConfigRoot = RYGBridgeMobileConfigRootsForGroupURL(writableRoot).firstObject;
-        NSError *error = nil;
-        if ([NSFileManager.defaultManager createDirectoryAtPath:mobileConfigRoot
-                                    withIntermediateDirectories:YES
-                                                     attributes:nil
-                                                          error:&error]) {
-            NSString *target = [mobileConfigRoot stringByAppendingPathComponent:leaf];
-            if ([NSFileManager.defaultManager createDirectoryAtPath:target
-                                        withIntermediateDirectories:YES
-                                                         attributes:nil
-                                                              error:&error]) {
-                return RYGBridgeRememberResolvedDataDirectory(target);
-            }
-        }
-    }
+    // Read-only native-file policy: never create a MobileConfig root or account
+    // leaf. Runtime overrides persist in RyukGram's store and are applied through
+    // StartupConfigs/the typed getter owner.
 
     // Rootful/jailbreak installs may expose no App Group dictionary at all. In
     // that environment preserve the manager's existing exact .data directory;
@@ -220,15 +184,9 @@ static NSString *RYGBridgeResolveDataDirectoryFromCandidate(NSString *candidate)
 }
 
 static void RYGBridgeMirrorMappingCache(NSString *dataDirectory) {
-    if (!dataDirectory.length) return;
-    NSData *mapping = RYGMCLoadCachedNameMappingData();
-    if (!mapping.length) return;
-
-    NSString *destination = [dataDirectory stringByAppendingPathComponent:@"id_name_mapping.json"];
-    NSData *existing = [NSData dataWithContentsOfFile:destination options:0 error:nil];
-    if (![existing isEqualToData:mapping]) {
-        [mapping writeToFile:destination options:NSDataWritingAtomic error:nil];
-    }
+    // Name mappings are optional RyukGram labels, not a native runtime source.
+    // Keep the app-owned MobileConfig directory read-only.
+    (void)dataDirectory;
 }
 
 @implementation RYGMobileConfig (RYGMobileConfigBridge)

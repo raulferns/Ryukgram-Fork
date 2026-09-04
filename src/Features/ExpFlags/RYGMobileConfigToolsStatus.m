@@ -1,31 +1,18 @@
 #import "RYGMobileConfigToolsViewController.h"
 #import "RYGMobileConfig.h"
-#import "RYGMobileConfigJSONIO.h"
 #import "../../Settings/RYGSetting.h"
 #import "../../Settings/RYGSymbol.h"
 #import <objc/runtime.h>
-#import <objc/message.h>
 
-@interface RYGMobileConfig (RYGToolsStatusPrivate)
-- (unsigned long long)bestParamIDFor:(RYGMCParam *)param;
-- (void *)overridesTableForPid:(unsigned long long)pid;
-- (NSString *)ryg_nativePersistenceStatus;
-- (NSString *)ryg_nativePersistencePath;
-@end
-
-static NSUInteger RYGNativeTableReadyOverrideCount(RYGMobileConfig *mc) {
-    NSUInteger ready = 0;
-    SEL bestSelector = NSSelectorFromString(@"bestParamIDFor:");
-    SEL tableSelector = NSSelectorFromString(@"overridesTableForPid:");
-    if (![mc respondsToSelector:bestSelector] || ![mc respondsToSelector:tableSelector]) return 0;
-    for (RYGMCConfig *config in mc.allConfigs) {
-        for (RYGMCParam *param in config.params) {
-            if ([mc overrideStateFor:param] != RYGMCOverrideSet) continue;
-            unsigned long long pid = ((unsigned long long (*)(id, SEL, id))objc_msgSend)(mc, bestSelector, param);
-            if (pid && ((void *(*)(id, SEL, unsigned long long))objc_msgSend)(mc, tableSelector, pid)) ready++;
-        }
-    }
-    return ready;
+static BOOL RYGStartupConfigsSurfaceAvailable(void) {
+    Class cls = NSClassFromString(@"FBMobileConfigStartupConfigs");
+    if (!cls) return NO;
+    Method getInstance = class_getClassMethod(cls, NSSelectorFromString(@"getInstance"));
+    Method setOverride = class_getInstanceMethod(cls, NSSelectorFromString(@"setOverrideForParam:andValue:"));
+    Method removeOverride = class_getInstanceMethod(cls, NSSelectorFromString(@"removeOverrideForParam:"));
+    return getInstance && method_getNumberOfArguments(getInstance) == 2 &&
+           setOverride && method_getNumberOfArguments(setOverride) == 4 &&
+           removeOverride && method_getNumberOfArguments(removeOverride) == 3;
 }
 
 @implementation RYGMobileConfigToolsViewController (RYGStatus)
@@ -39,25 +26,23 @@ static NSUInteger RYGNativeTableReadyOverrideCount(RYGMobileConfig *mc) {
 
     RYGMobileConfig *mc = [RYGMobileConfig shared];
     NSUInteger overrides = mc.overrideCount;
-    NSUInteger nativeReady = RYGNativeTableReadyOverrideCount(mc);
-    NSString *nativeSubtitle = overrides
-        ? [NSString stringWithFormat:@"%lu of %lu overridden parameters currently resolve to Instagram's native FBMobileConfigOverridesTable. Reapply retries pending units.",
-           (unsigned long)nativeReady, (unsigned long)overrides]
-        : @"No RyukGram MobileConfig overrides are currently selected. Native table availability is shown per parameter in the live browser.";
+    BOOL startupConfigs = RYGStartupConfigsSurfaceAvailable();
+    NSString *nativeSubtitle = startupConfigs
+        ? [NSString stringWithFormat:@"FBMobileConfigStartupConfigs is loaded. %lu typed override(s) are persisted and can be replayed through its validated ABI.",
+           (unsigned long)overrides]
+        : [NSString stringWithFormat:@"StartupConfigs is not loaded yet. %lu typed override(s) remain in RyukGram's exact getter store and can be retried later.",
+           (unsigned long)overrides];
 
-    NSString *path = [mc ryg_nativeOverridesJSONPath];
-    NSString *persistSubtitle = path.length
-        ? [NSString stringWithFormat:@"Canonical mc_overrides.json\n%@", path]
-        : @"Waiting for Instagram's actual Documents/mobileconfig/*.data directory. A parent mobileconfig directory is never accepted as the target.";
+    NSString *persistSubtitle = @"RyukGram typed plist + portable JSON snapshot. Instagram's native mc_overrides.json is read-only and is not used as a writer target.";
 
-    RYGSetting *native = [RYGSetting staticCellWithTitle:@"Native MobileConfig table"
+    RYGSetting *native = [RYGSetting staticCellWithTitle:@"Native StartupConfigs writer"
                                                 subtitle:nativeSubtitle
                                                     icon:[RYGSymbol symbolWithName:@"sliders"]];
-    RYGSetting *disk = [RYGSetting staticCellWithTitle:@"Container persistence"
+    RYGSetting *disk = [RYGSetting staticCellWithTitle:@"Override persistence"
                                               subtitle:persistSubtitle
                                                   icon:[RYGSymbol symbolWithName:@"document"]];
     NSDictionary *status = [RYGSettingsViewController sectionWithHeader:@"Apply status"
-                                                                  footer:@"Runtime application and JSON persistence are intentionally separate operations."
+                                                                  footer:@"Runtime application uses StartupConfigs and the exact getter-hook owner. JSON exists only for import/export."
                                                                     rows:@[native, disk]];
 
     NSMutableArray *sections = [NSMutableArray arrayWithObject:status];

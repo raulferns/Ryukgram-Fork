@@ -27,6 +27,10 @@ static NSMutableDictionary<NSNumber *, NSNumber *> *gRealPidByOrdIdx;
 static pthread_mutex_t gLock = PTHREAD_MUTEX_INITIALIZER;
 static atomic_bool gPersistedNativeSyncScheduled = false;
 
+@interface RYGMobileConfig (RYGNativeManagerAuthority)
+- (id)ryg_resolveActiveSessionManager;
+@end
+
 static void *rygSym(const char *name) { return dlsym(RTLD_DEFAULT, name); }
 
 static BOOL rygImageRangeIsReadable(const void *pointer, size_t length) {
@@ -62,9 +66,9 @@ static void rygActivateOverride(unsigned long long pid, id value) { if (!pid || 
 static void rygDeactivateOverride(unsigned long long pid) { if (!pid) return; pthread_mutex_lock(&gLock); [gActiveOverrides removeObjectForKey:@(rygVariantPid(pid, 0x40))]; [gActiveOverrides removeObjectForKey:@(rygVariantPid(pid, 0x80))]; pthread_mutex_unlock(&gLock); }
 
 static void rygCaptureManager(id manager, unsigned long long pid) {
-    if (!manager || !pid) return; gManager = manager;
+    if (!manager || !pid) return;
     unsigned long long unit = (pid >> 48) & 0xF0; unsigned int ordinal = (unsigned int)((pid >> 32) & 0xFFFF); unsigned int index = (unsigned int)((pid >> 16) & 0xFFFF);
-    pthread_mutex_lock(&gLock); if (!gManagersByUnit) gManagersByUnit = [NSMutableDictionary dictionary]; if (!gRealPidByOrdIdx) gRealPidByOrdIdx = [NSMutableDictionary dictionary]; gManagersByUnit[@(unit)] = manager; gRealPidByOrdIdx[@(((unsigned long long)ordinal << 20) | index)] = @(pid); pthread_mutex_unlock(&gLock);
+    pthread_mutex_lock(&gLock); gManager = manager; if (!gManagersByUnit) gManagersByUnit = [NSMutableDictionary dictionary]; if (!gRealPidByOrdIdx) gRealPidByOrdIdx = [NSMutableDictionary dictionary]; gManagersByUnit[@(unit)] = manager; gRealPidByOrdIdx[@(((unsigned long long)ordinal << 20) | index)] = @(pid); pthread_mutex_unlock(&gLock);
 
     bool expected = false;
     if (atomic_compare_exchange_strong_explicit(&gPersistedNativeSyncScheduled, &expected, true, memory_order_relaxed, memory_order_relaxed)) {
@@ -165,7 +169,17 @@ static id new_getStringOptsDef(id self, SEL cmd, unsigned long long pid, id opts
 #pragma mark - Name catalog
 - (NSDictionary *)loadNameCatalog { NSDictionary *cached = RYGMCLoadCachedNameMappingCatalog(NULL); if (cached.count) return cached; NSMutableDictionary *catalog = [NSMutableDictionary dictionary]; [self mergeDiskNamesInto:catalog]; return catalog.copy; }
 - (NSString *)mcDirectory {
+    pthread_mutex_lock(&gLock);
     id manager = gManager;
+    pthread_mutex_unlock(&gLock);
+    if (!manager) {
+        manager = [self ryg_resolveActiveSessionManager];
+        if (manager) {
+            pthread_mutex_lock(&gLock);
+            gManager = manager;
+            pthread_mutex_unlock(&gLock);
+        }
+    }
     SEL selector = NSSelectorFromString(@"getOverridesTablePath");
     Method method = manager ? class_getInstanceMethod([manager class], selector) : NULL;
     if (!method || method_getNumberOfArguments(method) != 2) return nil;
@@ -221,7 +235,9 @@ static id new_getStringOptsDef(id self, SEL cmd, unsigned long long pid, id opts
         const char *row = table + i * stride; if (![self descriptorAt:row stride:stride validatesType:NO]) continue; unsigned int paramIndex = 0, ordinalMix = 0, typeSerial = 0, configNumber = 0; memcpy(&paramIndex,row+16,4); memcpy(&ordinalMix,row+20,4); memcpy(&typeSerial,row+24,4); memcpy(&configNumber,row+stride-4,4); RYGMCType type = (RYGMCType)(typeSerial >> 16); unsigned int ordinal = ordinalMix & 0xFFFF, serial = typeSerial & 0xFFFF; unsigned long long pid = [self validParamIDForOrdinal:ordinal index:paramIndex serial:serial type:type]; if (!pid) continue;
         RYGMCParam *param = [RYGMCParam new]; param.paramID = pid; param.ordinal = ordinal; param.configNumber = configNumber; param.paramIndex = paramIndex; param.type = type; param.runtimeBacked = YES; NSDictionary *info = catalog[@(configNumber)]; NSDictionary *mapped = [info[@"params"] isKindOfClass:NSDictionary.class] ? info[@"params"] : nil; param.name = mapped[@(paramIndex)]; NSMutableDictionary *bucket = paramsByConfig[@(configNumber)]; if (!bucket) { bucket = [NSMutableDictionary dictionary]; paramsByConfig[@(configNumber)] = bucket; } bucket[@(paramIndex)] = param;
     }
-    [catalog enumerateKeysAndObjectsUsingBlock:^(NSNumber *cfg, NSDictionary *info, BOOL *stop) { (void)stop; NSMutableDictionary *bucket = paramsByConfig[cfg]; if (!bucket) { bucket = [NSMutableDictionary dictionary]; paramsByConfig[cfg] = bucket; } NSDictionary *mapped = [info[@"params"] isKindOfClass:NSDictionary.class] ? info[@"params"] : @{}; [mapped enumerateKeysAndObjectsUsingBlock:^(NSNumber *idx, NSString *name, BOOL *innerStop) { (void)innerStop; RYGMCParam *p = bucket[idx]; if (p) { if (name.length) p.name = name; } else { p = [RYGMCParam new]; p.configNumber = cfg.unsignedIntValue; p.paramIndex = idx.unsignedIntValue; p.type = RYGMCTypeUnknown; p.runtimeBacked = NO; p.name = name; bucket[idx] = p; } }]; }];
+    // id_name_mapping is decoration only. Never create browser rows or PIDs from
+    // an external mapping entry that is absent from this binary's live table.
+    [catalog enumerateKeysAndObjectsUsingBlock:^(NSNumber *cfg, NSDictionary *info, BOOL *stop) { (void)stop; NSMutableDictionary *bucket = paramsByConfig[cfg]; if (!bucket) return; NSDictionary *mapped = [info[@"params"] isKindOfClass:NSDictionary.class] ? info[@"params"] : @{}; [mapped enumerateKeysAndObjectsUsingBlock:^(NSNumber *idx, NSString *name, BOOL *innerStop) { (void)innerStop; RYGMCParam *p = bucket[idx]; if (p && name.length) p.name = name; }]; }];
     NSMutableArray *configs = [NSMutableArray array]; [paramsByConfig enumerateKeysAndObjectsUsingBlock:^(NSNumber *cfg, NSDictionary *bucket, BOOL *stop) { (void)stop; RYGMCConfig *c = [RYGMCConfig new]; c.number = cfg.unsignedIntValue; NSDictionary *info = catalog[cfg]; c.name = [info[@"name"] isKindOfClass:NSString.class] ? info[@"name"] : nil; c.params = [bucket.allValues sortedArrayUsingComparator:^NSComparisonResult(RYGMCParam *a, RYGMCParam *b) { return a.paramIndex == b.paramIndex ? NSOrderedSame : (a.paramIndex < b.paramIndex ? NSOrderedAscending : NSOrderedDescending); }]; [configs addObject:c]; }];
     [configs sortUsingComparator:^NSComparisonResult(RYGMCConfig *a, RYGMCConfig *b) { BOOL an = a.name.length, bn = b.name.length; if (an != bn) return an ? NSOrderedAscending : NSOrderedDescending; if (an) { NSComparisonResult n = [a.name localizedCaseInsensitiveCompare:b.name]; if (n != NSOrderedSame) return n; } return a.number == b.number ? NSOrderedSame : (a.number < b.number ? NSOrderedAscending : NSOrderedDescending); }]; _configs = configs.copy; _namedConfigCount = catalog.count; _ready = YES;
 }
@@ -238,7 +254,22 @@ static NSString *rygNormalize(NSString *s) { if (!s.length) return @""; NSString
 
 #pragma mark - Live values
 - (unsigned long long)bestParamIDFor:(RYGMCParam *)param { if (!param.runtimeBacked || !param.paramID) return 0; pthread_mutex_lock(&gLock); NSNumber *real = gRealPidByOrdIdx[@(((unsigned long long)param.ordinal << 20) | param.paramIndex)]; pthread_mutex_unlock(&gLock); return real ? real.unsignedLongLongValue : param.paramID; }
-- (id)managerForPid:(unsigned long long)pid { if (!pid) return nil; unsigned long long unit = (pid >> 48) & 0xF0; pthread_mutex_lock(&gLock); id m = gManagersByUnit[@(unit)]; pthread_mutex_unlock(&gLock); return m ?: gManager; }
+- (id)managerForPid:(unsigned long long)pid {
+    if (!pid) return nil;
+    unsigned long long unit = (pid >> 48) & 0xF0;
+    pthread_mutex_lock(&gLock);
+    id manager = gManagersByUnit[@(unit)] ?: gManager;
+    pthread_mutex_unlock(&gLock);
+    if (!manager && [self respondsToSelector:@selector(ryg_resolveActiveSessionManager)]) {
+        manager = [self ryg_resolveActiveSessionManager];
+        if (manager) {
+            pthread_mutex_lock(&gLock);
+            gManager = manager;
+            pthread_mutex_unlock(&gLock);
+        }
+    }
+    return manager;
+}
 - (id)liveValueFor:(RYGMCParam *)param {
     if (!param.runtimeBacked || !param.paramID || param.type == RYGMCTypeUnknown) return nil; unsigned long long pid = [self bestParamIDFor:param]; id m = [self managerForPid:pid]; if (!m) return nil;
     switch (param.type) { case RYGMCTypeBool: if ([m respondsToSelector:@selector(getBool:)]) return @(((BOOL (*)(id, SEL, unsigned long long))objc_msgSend)(m, @selector(getBool:), pid)); break; case RYGMCTypeInt: if ([m respondsToSelector:@selector(getInt64:)]) return @(((long long (*)(id, SEL, unsigned long long))objc_msgSend)(m, @selector(getInt64:), pid)); break; case RYGMCTypeDouble: if ([m respondsToSelector:@selector(getDouble:)]) return @(((double (*)(id, SEL, unsigned long long))objc_msgSend)(m, @selector(getDouble:), pid)); break; case RYGMCTypeString: if ([m respondsToSelector:@selector(getString:)]) { id v = ((id (*)(id, SEL, unsigned long long))objc_msgSend)(m, @selector(getString:), pid); return [v isKindOfClass:NSString.class] ? v : nil; } break; default: break; }
@@ -246,10 +277,41 @@ static NSString *rygNormalize(NSString *s) { if (!s.length) return @""; NSString
 }
 
 #pragma mark - Native StartupConfigs overrides
-static BOOL rygMethodIsVoidQObject(Method m) { if (!m || method_getNumberOfArguments(m) != 4) return NO; char t[64] = {0}; method_getReturnType(m,t,sizeof(t)); if (*t != 'v') return NO; method_getArgumentType(m,2,t,sizeof(t)); const char *a = t; while (a && strchr("rnNoORV",*a)) a++; if (!a || (*a != 'Q' && *a != 'q')) return NO; memset(t,0,sizeof(t)); method_getArgumentType(m,3,t,sizeof(t)); a = t; while (a && strchr("rnNoORV",*a)) a++; return a && *a == '@'; }
+static BOOL rygMethodIsSetOverride(Method m, BOOL *returnsBool) {
+    if (returnsBool) *returnsBool = NO;
+    if (!m || method_getNumberOfArguments(m) != 4) return NO;
+    char t[64] = {0};
+    method_getReturnType(m,t,sizeof(t));
+    const char *r = t; while (r && strchr("rnNoORV",*r)) r++;
+    BOOL boolResult = r && *r && strchr("BcC", *r) != NULL;
+    if (!r || (*r != 'v' && !boolResult)) return NO;
+    memset(t,0,sizeof(t)); method_getArgumentType(m,2,t,sizeof(t));
+    const char *a = t; while (a && strchr("rnNoORV",*a)) a++;
+    if (!a || (*a != 'Q' && *a != 'q')) return NO;
+    memset(t,0,sizeof(t)); method_getArgumentType(m,3,t,sizeof(t));
+    a = t; while (a && strchr("rnNoORV",*a)) a++;
+    if (!a || *a != '@') return NO;
+    if (returnsBool) *returnsBool = boolResult;
+    return YES;
+}
 static BOOL rygMethodIsVoidQ(Method m) { if (!m || method_getNumberOfArguments(m) != 3) return NO; char t[64] = {0}; method_getReturnType(m,t,sizeof(t)); if (*t != 'v') return NO; method_getArgumentType(m,2,t,sizeof(t)); const char *a = t; while (a && strchr("rnNoORV",*a)) a++; return a && (*a == 'Q' || *a == 'q'); }
 - (id)startupConfigs { Class cls = NSClassFromString(@"FBMobileConfigStartupConfigs"); SEL sel = NSSelectorFromString(@"getInstance"); Method m = cls ? class_getClassMethod(cls,sel) : NULL; if (!m || method_getNumberOfArguments(m) != 2) return nil; char t[16] = {0}; method_getReturnType(m,t,sizeof(t)); if (*t != '@') return nil; return ((id (*)(id, SEL))objc_msgSend)((id)cls, sel); }
-- (BOOL)writeNativeForPid:(unsigned long long)pid value:(id)value { if (!pid || !value) return NO; id startup = [self startupConfigs]; SEL sel = NSSelectorFromString(@"setOverrideForParam:andValue:"); Method m = startup ? class_getInstanceMethod([startup class],sel) : NULL; if (!rygMethodIsVoidQObject(m)) return NO; ((void (*)(id, SEL, unsigned long long, id))objc_msgSend)(startup,sel,pid,value); return YES; }
+- (BOOL)writeNativeForPid:(unsigned long long)pid value:(id)value {
+    if (!pid || !value) return NO;
+    id startup = [self startupConfigs];
+    SEL sel = NSSelectorFromString(@"setOverrideForParam:andValue:");
+    Method m = startup ? class_getInstanceMethod([startup class],sel) : NULL;
+    BOOL returnsBool = NO;
+    if (!rygMethodIsSetOverride(m, &returnsBool)) return NO;
+    @try {
+        if (returnsBool)
+            return ((BOOL (*)(id, SEL, unsigned long long, id))objc_msgSend)(startup,sel,pid,value);
+        ((void (*)(id, SEL, unsigned long long, id))objc_msgSend)(startup,sel,pid,value);
+        return YES;
+    } @catch (__unused NSException *exception) {
+        return NO;
+    }
+}
 - (BOOL)writeNativeBothUnitsForPid:(unsigned long long)pid value:(id)value { BOOL a = [self writeNativeForPid:rygVariantPid(pid,0x40) value:value]; BOOL b = [self writeNativeForPid:rygVariantPid(pid,0x80) value:value]; return a || b; }
 - (BOOL)removeNativeForPid:(unsigned long long)pid { id startup = [self startupConfigs]; SEL sel = NSSelectorFromString(@"removeOverrideForParam:"); Method m = startup ? class_getInstanceMethod([startup class],sel) : NULL; if (!rygMethodIsVoidQ(m)) return NO; ((void (*)(id, SEL, unsigned long long))objc_msgSend)(startup,sel,pid); return YES; }
 - (void)removeNativeBothUnitsForPid:(unsigned long long)pid { [self removeNativeForPid:rygVariantPid(pid,0x40)]; [self removeNativeForPid:rygVariantPid(pid,0x80)]; }
@@ -276,7 +338,12 @@ static BOOL rygMethodIsVoidQ(Method m) { if (!m || method_getNumberOfArguments(m
 - (void)setNote:(NSString *)note for:(RYGMCParam *)param { NSNumber *k = [self noteKeyForParam:param]; if (note.length) _notes[k] = note; else [_notes removeObjectForKey:k]; [self saveNotes]; }
 - (NSString *)storePathFor:(NSString *)name { NSString *d = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,NSUserDomainMask,YES).firstObject stringByAppendingPathComponent:@"RyukGram"]; [NSFileManager.defaultManager createDirectoryAtPath:d withIntermediateDirectories:YES attributes:nil error:nil]; return [d stringByAppendingPathComponent:name]; }
 - (NSMutableDictionary *)loadOverrides { NSDictionary *disk = [NSDictionary dictionaryWithContentsOfFile:[self storePathFor:@"mc_overrides.plist"]]; NSMutableDictionary *out = [NSMutableDictionary dictionary]; for (id raw in disk) { if (![raw isKindOfClass:NSString.class]) continue; unsigned long long pid = strtoull([raw UTF8String],NULL,10); RYGMCType type = (RYGMCType)((pid >> 48) & 0x0F); id v = disk[raw]; BOOL valid = type == RYGMCTypeString ? [v isKindOfClass:NSString.class] : [v isKindOfClass:NSNumber.class]; if (pid && RYGMCTypeIsRuntimeValue(type) && valid) out[@(rygCanonicalPid(pid))] = v; } return out; }
-- (void)syncOverridesJSON { NSError *error = nil; NSData *data = [self ryg_exportOverridesData:&error]; NSString *path = [self ryg_nativeOverridesJSONPath]; if (data.length && path.length) [data writeToFile:path options:NSDataWritingAtomic error:nil]; }
+- (void)syncOverridesJSON {
+    // Portable RyukGram persistence only. Instagram's C++ mc_overrides.json is
+    // an app-owned input and is never a writer target. JSONSync owns the local
+    // snapshot + StartupConfigs reapply pipeline.
+    (void)[self ryg_syncPersistedJSONToNativeDataDirectory];
+}
 - (void)saveOverrides {
     NSMutableDictionary *disk = [NSMutableDictionary dictionary];
     for (NSNumber *k in _overrides) disk[k.stringValue] = _overrides[k];

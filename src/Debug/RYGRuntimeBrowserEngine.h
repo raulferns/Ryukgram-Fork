@@ -48,6 +48,8 @@ typedef NS_ENUM(NSInteger, RYGRuntimeMemberKind) {
 @property (nonatomic, copy) NSString *typeEncoding;
 @property (nonatomic, assign) RYGRuntimeMemberKind kind;
 @property (nonatomic, assign) BOOL hookableBool;
+@property (nonatomic, assign) BOOL hookableValue;
+@property (nonatomic, copy) NSString *valueTypeCode;
 @property (nonatomic, assign) RYGRuntimeArgumentKind argumentKind;
 @property (nonatomic, readonly) BOOL method;
 @property (nonatomic, readonly) BOOL classMember;

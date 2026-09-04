@@ -30,6 +30,23 @@
 }
 
 + (NSArray *)experimentConfigs {
+    // The current build exposes the family-local source of truth directly.
+    // Prefer its generated config set over allocating every protocol conformer,
+    // which can mix LID and FDID configurations with the wrong generator.
+    Class generatorClass = NSClassFromString(@"FDIDExperimentGenerator");
+    SEL generate = NSSelectorFromString(@"generateConfigs");
+    Method generateMethod = generatorClass ? class_getClassMethod(generatorClass, generate) : NULL;
+    if (generateMethod && method_getNumberOfArguments(generateMethod) == 2) {
+        char returnType[32] = {0};
+        method_getReturnType(generateMethod, returnType, sizeof(returnType));
+        if (returnType[0] == '@') {
+            @try {
+                id generated = ((id (*)(id, SEL))objc_msgSend)((id)generatorClass, generate);
+                if ([generated isKindOfClass:NSArray.class] && [generated count]) return generated;
+            } @catch (__unused id exception) {}
+        }
+    }
+
     Protocol *protocol = objc_getProtocol("MetaLocalExperimentConfigProtocol");
     if (!protocol) return @[];
 
@@ -50,12 +67,25 @@
 }
 
 + (id)experimentGenerator {
-    Class cls = NSClassFromString(@"LIDExperimentGenerator");
-    SEL selector = NSSelectorFromString(@"initWithDeviceID:logger:");
+    Class idProvider = NSClassFromString(@"OdinFamilyDeviceIDSignalProvider");
+    SEL currentIDSelector = NSSelectorFromString(@"currentFamilyDeviceID");
+    Method currentIDMethod = idProvider ? class_getClassMethod(idProvider, currentIDSelector) : NULL;
+    id familyDeviceID = nil;
+    if (currentIDMethod && method_getNumberOfArguments(currentIDMethod) == 2) {
+        char returnType[32] = {0};
+        method_getReturnType(currentIDMethod, returnType, sizeof(returnType));
+        if (returnType[0] == '@') {
+            @try { familyDeviceID = ((id (*)(id, SEL))objc_msgSend)((id)idProvider, currentIDSelector); }
+            @catch (__unused id exception) {}
+        }
+    }
+
+    Class cls = NSClassFromString(@"FDIDExperimentGenerator");
+    SEL selector = NSSelectorFromString(@"initWithFamilyDeviceID:logger:");
     Method method = cls ? class_getInstanceMethod(cls, selector) : NULL;
     if (!method || method_getNumberOfArguments(method) != 4) return nil;
     @try {
-        return ((id (*)(id, SEL, id, id))objc_msgSend)([cls alloc], selector, nil, nil);
+        return ((id (*)(id, SEL, id, id))objc_msgSend)([cls alloc], selector, familyDeviceID, nil);
     } @catch (__unused id exception) {
         return nil;
     }
@@ -105,6 +135,10 @@
             if ([listClass instancesRespondToSelector:initSelector]) {
                 NSArray *configs = [self experimentConfigs];
                 id generator = [self experimentGenerator];
+                if (!configs.count || !generator) {
+                    [RYGUtils showErrorHUDWithDescription:@"Family Local Experiment configs or FDID generator are unavailable"];
+                    return;
+                }
                 controller = ((id (*)(id, SEL, id, id))objc_msgSend)([listClass alloc], initSelector, configs, generator);
             } else {
                 controller = [[listClass alloc] init];
@@ -114,6 +148,12 @@
         if (![controller isKindOfClass:UIViewController.class]) {
             [RYGUtils showErrorHUDWithDescription:@"MetaLocalExperiment native controller could not be initialized"];
             return;
+        }
+
+        SEL internalSelector = NSSelectorFromString(@"setIsSessionlessCaaInternal:");
+        Method internalMethod = class_getInstanceMethod([controller class], internalSelector);
+        if (internalMethod && method_getNumberOfArguments(internalMethod) == 3) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(controller, internalSelector, YES);
         }
 
         [self installCloseButton:controller];

@@ -165,17 +165,13 @@ static NSString *RYGMCNativeDataDirectoryFromValue(id value) {
     return [parent.pathExtension.lowercaseString isEqualToString:@"data"] ? parent : nil;
 }
 
-static NSString *RYGMCValidatedNativeDirectory(NSString *path, BOOL create) {
+static NSString *RYGMCValidatedNativeDirectory(NSString *path) {
     path = path.stringByStandardizingPath;
     if (!path.length || ![path.pathExtension.lowercaseString isEqualToString:@"data"]) return nil;
     BOOL isDirectory = NO;
     if ([NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&isDirectory])
         return isDirectory ? path : nil;
-    if (!create) return nil;
-    return [NSFileManager.defaultManager createDirectoryAtPath:path
-                                    withIntermediateDirectories:YES
-                                                     attributes:nil
-                                                          error:nil] ? path : nil;
+    return nil;
 }
 
 static NSString *RYGMCDataDirectoryFromManager(id manager) {
@@ -184,7 +180,7 @@ static NSString *RYGMCDataDirectoryFromManager(id manager) {
     Method method = class_getInstanceMethod([manager class], selector);
     if (!RYGMCPathMethodLooksCompatible(method)) return nil;
     id value = ((id (*)(id, SEL))objc_msgSend)(manager, selector);
-    return RYGMCValidatedNativeDirectory(RYGMCNativeDataDirectoryFromValue(value), YES);
+    return RYGMCValidatedNativeDirectory(RYGMCNativeDataDirectoryFromValue(value));
 }
 
 @interface RYGMobileConfig (RYGNativeAuthorityPrivate)
@@ -194,11 +190,19 @@ static NSString *RYGMCDataDirectoryFromManager(id manager) {
 
 @implementation RYGMobileConfig (RYGNativeAuthority)
 
+- (id)ryg_resolveActiveSessionManager {
+    // Explicit browser/editor path only. This is intentionally not called from
+    // a constructor or a MobileConfig getter hot path.
+    id manager = RYGMCActiveSessionContextManager() ?: RYGMCCurrentObservedManager();
+    if (manager) RYGMCRetainObservedManager(manager);
+    if (!manager) RYGMCTryInstallOneShotManagerCapture();
+    return manager;
+}
+
 - (NSString *)ryg_authorityNativeDataDirectory {
     // User-triggered resolution only. No MobileConfig manager discovery runs in
     // a cold-launch constructor.
-    id manager = RYGMCActiveSessionContextManager();
-    if (manager) RYGMCRetainObservedManager(manager);
+    id manager = [self ryg_resolveActiveSessionManager];
     NSString *native = RYGMCDataDirectoryFromManager(manager ?: RYGMCCurrentObservedManager());
     if (native.length) return native;
 
@@ -208,7 +212,7 @@ static NSString *RYGMCDataDirectoryFromManager(id manager) {
     RYGMCTryInstallOneShotManagerCapture();
 
     NSString *previous = [self ryg_authorityNativeDataDirectory];
-    return RYGMCValidatedNativeDirectory(previous, previous.length > 0);
+    return RYGMCValidatedNativeDirectory(previous);
 }
 
 @end

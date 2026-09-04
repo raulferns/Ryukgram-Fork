@@ -196,9 +196,51 @@ static BOOL RYGEasyGatingImageRangeHasProtection(const void *imageBase,
     return NO;
 }
 
-// Decode the exact read-only mapper embedded in the current wrapper instead of
-// jumping into the middle of signed code. This remains safe with BTI/PAC because
-// no indirect branch targets an interior instruction.
+static BOOL RYGEasyGatingMapperInstructionsMatch(const uint32_t instructions[9]) {
+    if (!instructions) return NO;
+    return instructions[0] == 0x2a0003ebu && // mov w11, w0
+           instructions[1] == 0xa9bf7bfdu && // stp x29, x30, [sp, #-0x10]!
+           instructions[2] == 0x910003fdu && // mov x29, sp
+           instructions[6] == 0x786b7928u && // ldrh w8, [x9, x11, lsl #1]
+           instructions[7] == 0x8b08094au && // add x10, x10, x8, lsl #2
+           instructions[8] == 0xd61f0140u;   // br x10
+}
+
+static BOOL RYGDecodeARM64DirectBranch(uintptr_t instructionAddress,
+                                        uint32_t instruction,
+                                        uintptr_t *target) {
+    if (!target || (instruction & 0x7c000000u) != 0x14000000u) return NO;
+    int64_t immediate = (int64_t)(instruction & 0x03ffffffu);
+    if (immediate & 0x02000000LL) immediate |= ~0x03ffffffLL;
+    return RYGAddSignedOffset(instructionAddress, immediate * 4, target);
+}
+
+// The wrapper layout changes between Instagram builds. Locate the mapper by
+// following direct B/BL targets from the wrapper prologue and validating the
+// mapper's complete ARM64 dispatch shape. No offset or build-specific address is
+// trusted, and no instruction in the signed image is modified.
+static uintptr_t RYGFindEasyGatingMapper(const void *imageBase, uintptr_t wrapperAddress) {
+    if (!imageBase || !wrapperAddress ||
+        !RYGEasyGatingImageRangeHasProtection(imageBase, wrapperAddress, 0x100,
+                                              VM_PROT_READ | VM_PROT_EXECUTE)) return 0;
+    uint32_t prologue[64] = {0};
+    memcpy(prologue, (const void *)wrapperAddress, sizeof(prologue));
+    for (NSUInteger index = 0; index < 64; index++) {
+        uintptr_t target = 0;
+        if (!RYGDecodeARM64DirectBranch(wrapperAddress + index * 4,
+                                        prologue[index], &target)) continue;
+        if (!RYGEasyGatingImageRangeHasProtection(imageBase, target, 9 * sizeof(uint32_t),
+                                                  VM_PROT_READ | VM_PROT_EXECUTE)) continue;
+        uint32_t candidate[9] = {0};
+        memcpy(candidate, (const void *)target, sizeof(candidate));
+        if (RYGEasyGatingMapperInstructionsMatch(candidate)) return target;
+    }
+    return 0;
+}
+
+// Decode the exact read-only mapper reached by the current wrapper instead of
+// jumping into signed code. This remains safe with BTI/PAC because the helper is
+// only read and no indirect branch targets an interior instruction.
 static BOOL RYGResolveFinalGateID(RYGEasyGatingBoolFn wrapper,
                                   uint32_t selectorIndex,
                                   uint32_t *finalGateID) {
@@ -210,20 +252,11 @@ static BOOL RYGResolveFinalGateID(RYGEasyGatingBoolFn wrapper,
     NSString *image = [NSString stringWithUTF8String:info.dli_fname] ?: @"";
     if (![image.lastPathComponent containsString:@"FBSharedFramework"]) return NO;
 
-    // FBSharedFramework(20260821-132949): mapper starts at wrapper + 0x34.
-    // Validate ARM64 ADRP/ADD/ADR instructions before trusting any address so a
-    // future build simply becomes unobservable instead of reading arbitrary data.
-    uintptr_t helper = wrapperAddress + 0x34;
-    if (helper < wrapperAddress ||
-        !RYGEasyGatingImageRangeHasProtection(info.dli_fbase, helper, 0x24, VM_PROT_READ | VM_PROT_EXECUTE)) return NO;
+    uintptr_t helper = RYGFindEasyGatingMapper(info.dli_fbase, wrapperAddress);
+    if (!helper) return NO;
     uint32_t instructions[9] = {0};
     memcpy(instructions, (const void *)helper, sizeof(instructions));
-    if (instructions[0] != 0x2a0003ebu || // mov w11, w0
-        instructions[1] != 0xa9bf7bfdu || // stp x29, x30, [sp, #-0x10]!
-        instructions[2] != 0x910003fdu || // mov x29, sp
-        instructions[6] != 0x786b7928u || // ldrh w8, [x9, x11, lsl #1]
-        instructions[7] != 0x8b08094au || // add x10, x10, x8, lsl #2
-        instructions[8] != 0xd61f0140u) return NO; // br x10
+    if (!RYGEasyGatingMapperInstructionsMatch(instructions)) return NO;
     uint32_t adrp = instructions[3];
     uint32_t add  = instructions[4];
     uint32_t adr  = instructions[5];
@@ -254,7 +287,7 @@ static BOOL RYGResolveFinalGateID(RYGEasyGatingBoolFn wrapper,
     memcpy(&jumpUnits, (const void *)tableEntry, sizeof(jumpUnits));
     if ((uintptr_t)jumpUnits > (UINTPTR_MAX - jumpBase) / 4u) return NO;
     uintptr_t target = jumpBase + (uintptr_t)jumpUnits * 4u;
-    if (target < wrapperAddress + 0x34 || target >= wrapperAddress + 0x2000) return NO;
+    if (target < helper || target >= helper + 0x4000) return NO;
     if (!RYGEasyGatingImageRangeHasProtection(info.dli_fbase, target, 8, VM_PROT_READ | VM_PROT_EXECUTE)) return NO;
 
     uint32_t targetInstructions[2] = {0};
@@ -322,7 +355,8 @@ static BOOL RYGRegisterEasyGatingRebindings(void) {
         .replacement = (void *)&RYGEasyGatingWrapperReplacement,
         .replaced = (void **)&gRYGOriginalEasyGatingWrapper,
     };
-    // Instagram(9) imports/calls this wrapper directly. Rebind only the main
+    // The current Instagram executable imports/calls this wrapper directly.
+    // Rebind only the main
     // executable's import slot; do not register a process-wide hook and do not
     // modify FBSharedFramework.__TEXT.
     if (rebind_symbols_image((void *)mainHeader, mainSlide, &binding, 1) != 0 || !gRYGOriginalEasyGatingWrapper) {

@@ -21,31 +21,21 @@ static BOOL RYGMCJSONSyncWriteAndVerify(NSData *data, NSString *path) {
 @implementation RYGMobileConfig (RYGPersistedJSONSync)
 
 - (BOOL)ryg_syncPersistedJSONToNativeDataDirectory {
-    // Build the canonical document first and persist it locally. The App Group
-    // may not be resolvable on the first call, but a valid override document must
-    // never disappear just because Instagram has not exposed its native path yet.
+    // The canonical JSON is a portable RyukGram snapshot only. Runtime authority
+    // belongs to FBMobileConfigStartupConfigs and the typed getter-hook store.
+    // Never overwrite Instagram's C++-owned mc_overrides.json or name mapping.
     NSError *exportError = nil;
     NSData *overrides = [self ryg_exportOverridesData:&exportError];
     NSString *cachePath = RYGMCJSONSyncCanonicalCachePath();
     if (!overrides.length || !cachePath.length || !RYGMCJSONSyncWriteAndVerify(overrides, cachePath)) return NO;
 
-    NSString *directory = [self ryg_nativeDataDirectory];
-    if (!directory.length) return NO;
-
-    BOOL success = YES;
-    NSData *mapping = RYGMCLoadCachedNameMappingData();
-    NSString *mappingPath = [self ryg_nativeNameMappingPath];
-    if (mapping.length && mappingPath.length && !RYGMCJSONSyncWriteAndVerify(mapping, mappingPath)) success = NO;
-
-    NSString *overridesPath = [self ryg_nativeOverridesJSONPath];
-    if (!overridesPath.length || !RYGMCJSONSyncWriteAndVerify(overrides, overridesPath)) success = NO;
-    return success;
+    [self reapplyOverridesToNativeTable];
+    return YES;
 }
 
 // RYGMobileConfig.xm already coalesces syncOverridesJSON after a user mutation.
-// Own that callback here so every edit updates BOTH the durable local canonical
-// document and the exact native App Group file; the old implementation wrote
-// only the latter and silently did nothing when its path was nil.
+// Own that callback here so every edit updates the durable local snapshot and
+// reapplies native StartupConfigs without introducing a competing JSON writer.
 - (void)ryg_ownedSyncOverridesJSON {
     (void)[self ryg_syncPersistedJSONToNativeDataDirectory];
 }

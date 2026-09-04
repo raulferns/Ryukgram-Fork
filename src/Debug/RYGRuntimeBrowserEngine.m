@@ -1,5 +1,6 @@
 #import "RYGRuntimeBrowserEngine.h"
 #import "RYGRuntimeLiveObserver.h"
+#import "RYGRuntimeValueStore.h"
 #import "../../modules/fishhook/fishhook.h"
 #import <os/lock.h>
 #import <objc/runtime.h>
@@ -98,6 +99,17 @@ static BOOL RYGMethodHasSupportedBoolABI(Method method) {
     if (!RYGIsBoolType(encoded)) return NO;
     RYGRuntimeArgumentKind kind = RYGArgumentKindForMethod(method);
     return kind >= RYGRuntimeArgumentNone && kind <= RYGRuntimeArgumentInteger;
+}
+
+static NSString *RYGTypedGetterType(Method method) {
+    if (!method || method_getNumberOfArguments(method) != 2) return nil;
+    SEL selector = method_getName(method);
+    NSString *name = selector ? NSStringFromSelector(selector) : @"";
+    if (!RYGRuntimeValueSelectorIsSafeGetter(name)) return nil;
+    char encoded[64] = {0};
+    method_getReturnType(method, encoded, sizeof(encoded));
+    NSString *type = RYGRuntimeValueNormalizedType([NSString stringWithUTF8String:encoded]);
+    return RYGRuntimeValueTypeIsSupported(type) ? type : nil;
 }
 
 static BOOL RYGMethodIMPBelongsToImage(Method method, NSString *imagePath) {
@@ -263,7 +275,7 @@ static void RYGCountHookableMembersForClass(Class cls,
         Method *methods = owner ? class_copyMethodList(owner, &count) : NULL;
         for (unsigned int index = 0; methods && index < count; index++) {
             Method method = methods[index];
-            if (!RYGMethodHasSupportedBoolABI(method)) continue;
+            if (!RYGMethodHasSupportedBoolABI(method) && !RYGTypedGetterType(method).length) continue;
             if (!RYGMethodIMPBelongsToImage(method, imagePath)) continue;
             SEL selector = method_getName(method);
             NSString *name = selector ? NSStringFromSelector(selector) : @"";
@@ -532,7 +544,9 @@ static BOOL RYGCUnbindSlot(NSUInteger slot) {
         Method *methods = owner ? class_copyMethodList(owner, &methodCount) : NULL;
         for (unsigned int index = 0; methods && index < methodCount; index++) {
             Method method = methods[index];
-            if (!RYGMethodHasSupportedBoolABI(method)) continue;
+            NSString *valueType = RYGTypedGetterType(method);
+            BOOL boolABI = RYGMethodHasSupportedBoolABI(method);
+            if (!boolABI && !valueType.length) continue;
             if (!RYGMethodIMPBelongsToImage(method, imagePath)) continue;
             SEL selector = method_getName(method);
             NSString *name = selector ? NSStringFromSelector(selector) : @"";
@@ -544,8 +558,10 @@ static BOOL RYGCUnbindSlot(NSUInteger slot) {
             row.kind = classMember ? RYGRuntimeMemberClassMethod : RYGRuntimeMemberInstanceMethod;
             const char *types = method_getTypeEncoding(method);
             row.typeEncoding = types ? [NSString stringWithUTF8String:types] : @"";
-            row.hookableBool = YES;
-            row.argumentKind = RYGArgumentKindForMethod(method);
+            row.hookableBool = boolABI;
+            row.hookableValue = valueType.length > 0;
+            row.valueTypeCode = valueType ?: @"";
+            row.argumentKind = boolABI ? RYGArgumentKindForMethod(method) : RYGRuntimeArgumentNone;
             [rows addObject:row];
         }
         if (methods) free(methods);

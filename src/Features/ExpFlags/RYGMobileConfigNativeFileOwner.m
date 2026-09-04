@@ -1,6 +1,4 @@
 #import "RYGMobileConfig.h"
-#import "RYGMobileConfigJSONIO.h"
-#import "RYGMobileConfigNameMappingStore.h"
 #import <UIKit/UIKit.h>
 #import <stdatomic.h>
 
@@ -16,62 +14,15 @@ static dispatch_queue_t RYGMCNativeFileQueue(void) {
     return queue;
 }
 
-static NSString *RYGMCNativeFileCanonicalCachePath(void) {
-    NSString *support = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
-    if (!support.length) return nil;
-    return [[[support stringByAppendingPathComponent:@"RyukGram"] stringByStandardizingPath]
-        stringByAppendingPathComponent:@"mc_overrides_canonical.json"];
-}
-
-static BOOL RYGMCNativeFileValidJSON(NSData *data) {
-    if (!data.length) return NO;
-    id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    return [json isKindOfClass:NSDictionary.class];
-}
-
-static BOOL RYGMCNativeFileWriteAndVerify(NSData *data, NSString *path) {
-    if (!data.length || !path.length) return NO;
-    NSData *existing = [NSData dataWithContentsOfFile:path options:0 error:nil];
-    if ([existing isEqualToData:data]) return YES;
-    NSError *error = nil;
-    if (![data writeToFile:path options:NSDataWritingAtomic error:&error]) return NO;
-    NSData *roundTrip = [NSData dataWithContentsOfFile:path options:0 error:&error];
-    return roundTrip.length && [roundTrip isEqualToData:data];
-}
-
 static void RYGMCNativeFileRestore(uint64_t generation) {
     @autoreleasepool {
         if (atomic_load_explicit(&gRYGMCNativeFileGeneration, memory_order_acquire) != generation) return;
-
-        // The durable canonical document is the source of truth across process
-        // launches. Do not require the in-memory override table to have already
-        // been reconstructed: on a cold launch it is intentionally still empty.
-        NSData *canonical = [NSData dataWithContentsOfFile:RYGMCNativeFileCanonicalCachePath()
-                                                   options:NSDataReadingMappedIfSafe
-                                                     error:nil];
-        if (!RYGMCNativeFileValidJSON(canonical)) return;
-
         RYGMobileConfig *mobileConfig = RYGMobileConfig.shared;
-        NSString *nativePath = [mobileConfig ryg_nativeOverridesJSONPath];
-        if (!nativePath.length) return;
-        if (!RYGMCNativeFileWriteAndVerify(canonical, nativePath)) return;
-
-        NSData *mapping = RYGMCLoadCachedNameMappingData();
-        NSString *mappingPath = [mobileConfig ryg_nativeNameMappingPath];
-        if (mapping.length && mappingPath.length) (void)RYGMCNativeFileWriteAndVerify(mapping, mappingPath);
-
-        // If the process restarted, hydrate the runtime override table from the
-        // same canonical document before mirroring StartupConfigs. This runs on
-        // the utility queue after the app became active and never on cold-start.
-        if (!mobileConfig.overrideCount) {
-            NSUInteger applied = 0;
-            NSError *importError = nil;
-            (void)[mobileConfig ryg_importAndApplyOverridesData:canonical
-                                                   appliedCount:&applied
-                                                          error:&importError];
-        } else {
-            [mobileConfig reapplyOverridesToNativeTable];
-        }
+        // mc_overrides.plist is the only durable authority for RyukGram-owned
+        // values. RYGMobileConfig and the hot getter owner both load that exact
+        // typed store. Canonical/native JSON is export/import material only and
+        // must never be promoted implicitly when the app enters foreground.
+        if (mobileConfig.overrideCount) [mobileConfig reapplyOverridesToNativeTable];
     }
 }
 

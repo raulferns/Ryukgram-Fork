@@ -38,8 +38,11 @@ REQUIRED = (
     # the wrapper hook used by RYGEasyGatingRuntime.
     b"EasyGatingGetBoolean_Internal_DoNotUseOrMock",
     b"ryg_easy_gating_platform_bool_overrides_v2",
-    # Canonical MobileConfig file formats.
-    b"id_name_mapping.json",
+    # The legacy mapping may still decorate names, but the browser/persistence
+    # contract is the typed runtime snapshot and exact local value store.
+    b"com.ryukgram.mobileconfig.runtime-snapshot.v1",
+    b"ryg_runtime_typed_value_overrides_v1",
+    # Canonical MobileConfig read-only/import-export format.
     b"mc_overrides.json",
     b"_qe_overrides_",
     b": : ",
@@ -53,6 +56,11 @@ REQUIRED = (
     b"getInstance",
     b"setOverrideForParam:andValue:",
     b"removeOverrideForParam:",
+    # Current-session manager wiring used for effective reads and native paths.
+    b"FBMobileConfigFBTGlobalSessionManager",
+    b"currentSessionContextManagerHolder",
+    b"mcFbtManager",
+    b"mobileconfig",
 )
 
 # The rebuild deliberately removed these fragile direct C++ override paths.
@@ -172,9 +180,9 @@ def main() -> int:
         print(f"  {line}")
     print(
         "Integrated markers: sideload compatibility, App Group routing, "
-        "UIGlassEffect, final-ID EasyGating wrapper ABI, canonical MobileConfig "
-        "JSON, live parameter metadata, native FBMobileConfigStartupConfigs "
-        "typed override API"
+        "UIGlassEffect, final-ID EasyGating wrapper ABI, typed runtime snapshots, "
+        "live MobileConfig metadata, current-session manager wiring, native "
+        "FBMobileConfigStartupConfigs typed override API"
     )
     return 0
 

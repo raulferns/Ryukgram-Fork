@@ -7,6 +7,7 @@
 static NSString *const kRYGMobileConfigNamesDidChangeNotification = @"RYGMobileConfigNamesDidChange";
 static NSString *const kRYGMCQEOverridesKey = @"_qe_overrides_";
 static NSString *const kRYGMCCanonicalSeparator = @": : ";
+NSString *const RYGMCRuntimeSnapshotSchemaV1 = @"com.ryukgram.mobileconfig.runtime-snapshot.v1";
 
 @interface RYGMobileConfig (RYGPrivateNativePath)
 - (NSString *)mcDirectory;
@@ -142,6 +143,12 @@ static NSDictionary *RYGMCOverridesRootFromData(NSData *data) {
     return [root isKindOfClass:NSDictionary.class] ? root : nil;
 }
 
+static BOOL RYGMCValueMatchesType(id value, RYGMCType type) {
+    if (type == RYGMCTypeString) return [value isKindOfClass:NSString.class];
+    return (type == RYGMCTypeBool || type == RYGMCTypeInt || type == RYGMCTypeDouble) &&
+           [value isKindOfClass:NSNumber.class];
+}
+
 static BOOL RYGMCParseCanonicalLine(NSString *line,
                                     unsigned int *paramIndex,
                                     NSString **valueText) {
@@ -174,13 +181,9 @@ static BOOL RYGMCParseCanonicalLine(NSString *line,
     if ([fileManager fileExistsAtPath:path isDirectory:&isDirectory]) {
         return isDirectory ? path : nil;
     }
-
-    NSError *createError = nil;
-    if (![fileManager createDirectoryAtPath:path
-                withIntermediateDirectories:YES
-                                 attributes:nil
-                                      error:&createError]) return nil;
-    return path;
+    // Read-only native-file policy: an absent app-owned MobileConfig directory
+    // is not synthesized by RyukGram.
+    return nil;
 }
 
 - (NSString *)ryg_nativeNameMappingPath {
@@ -212,11 +215,6 @@ static BOOL RYGMCParseCanonicalLine(NSString *line,
     RYGMCMergeNameMappingCatalog(result, incoming);
     if (!RYGMCSaveNameMappingCatalog(result, error)) return NO;
     if (!RYGMCVerifyPersistedCatalog(result, error)) return NO;
-
-    NSData *canonical = RYGMCLoadCachedNameMappingData();
-    NSString *nativePath = [self ryg_nativeNameMappingPath];
-    if (nativePath.length && canonical.length &&
-        ![canonical writeToFile:nativePath options:NSDataWritingAtomic error:error]) return NO;
 
     [self reloadFromRuntime];
     RYGMCPostNamesChanged(self);
@@ -346,11 +344,9 @@ static BOOL RYGMCParseCanonicalLine(NSString *line,
     if (!canonical) return NO;
 
     NSString *cachePath = RYGMCCanonicalOverridesCachePath();
-    NSString *nativePath = [self ryg_nativeOverridesJSONPath];
     NSFileManager *fileManager = NSFileManager.defaultManager;
 
     BOOL cacheExisted = [fileManager fileExistsAtPath:cachePath];
-    BOOL nativeExisted = nativePath.length && [fileManager fileExistsAtPath:nativePath];
     NSError *snapshotError = nil;
     NSData *previousCache = cacheExisted
         ? [NSData dataWithContentsOfFile:cachePath options:0 error:&snapshotError]
@@ -359,15 +355,6 @@ static BOOL RYGMCParseCanonicalLine(NSString *line,
         if (error) *error = snapshotError ?: RYGMCJSONError(@"Could not snapshot the existing canonical overrides cache.");
         return NO;
     }
-    snapshotError = nil;
-    NSData *previousNative = nativeExisted
-        ? [NSData dataWithContentsOfFile:nativePath options:0 error:&snapshotError]
-        : nil;
-    if (nativeExisted && !previousNative) {
-        if (error) *error = snapshotError ?: RYGMCJSONError(@"Could not snapshot the existing native mc_overrides.json.");
-        return NO;
-    }
-
     // Snapshot every touched runtime parameter once — both rows being replaced
     // and old active rows that the imported final document intentionally omits.
     NSMutableArray<NSDictionary *> *previousOverrides = [NSMutableArray arrayWithCapacity:actions.count + clearParams.count];
@@ -407,13 +394,6 @@ static BOOL RYGMCParseCanonicalLine(NSString *line,
         } else {
             [fileManager removeItemAtPath:cachePath error:nil];
         }
-        if (nativePath.length) {
-            if (nativeExisted) {
-                [previousNative writeToFile:nativePath options:NSDataWritingAtomic error:nil];
-            } else {
-                [fileManager removeItemAtPath:nativePath error:nil];
-            }
-        }
     };
 
     for (RYGMCParam *param in clearParams) [self clearOverrideFor:param];
@@ -440,14 +420,6 @@ static BOOL RYGMCParseCanonicalLine(NSString *line,
         if (error) *error = writeError ?: RYGMCJSONError(@"Could not persist the canonical overrides cache.");
         return NO;
     }
-    if (nativePath.length &&
-        ![canonical writeToFile:nativePath options:NSDataWritingAtomic error:&writeError]) {
-        restoreDiskState();
-        rollbackLiveState();
-        if (error) *error = writeError ?: RYGMCJSONError(@"Could not persist the native mc_overrides.json.");
-        return NO;
-    }
-
     if (appliedCount) *appliedCount = applied;
     return YES;
 }
@@ -505,6 +477,154 @@ static BOOL RYGMCParseCanonicalLine(NSString *line,
     }
 
     return [NSJSONSerialization dataWithJSONObject:root options:0 error:error];
+}
+
+- (BOOL)ryg_isRuntimeSnapshotData:(NSData *)data {
+    if (!data.length) return NO;
+    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    return [root isKindOfClass:NSDictionary.class] &&
+           [root[@"schema"] isEqualToString:RYGMCRuntimeSnapshotSchemaV1] &&
+           [root[@"entries"] isKindOfClass:NSArray.class];
+}
+
+- (NSData *)ryg_exportRuntimeSnapshotData:(NSError **)error {
+    [self prepare];
+    NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
+    NSUInteger effectiveCount = 0;
+    NSUInteger overrideCount = 0;
+    for (RYGMCConfig *config in self.allConfigs) {
+        for (RYGMCParam *param in config.params) {
+            if (!param.isRuntimeBacked || !param.paramID || !RYGMCTypeIsRuntimeValue(param.type)) continue;
+            NSMutableDictionary *row = [@{
+                @"pid": [NSString stringWithFormat:@"%llu", param.paramID],
+                @"config": @(param.configNumber),
+                @"param": @(param.paramIndex),
+                @"ordinal": @(param.ordinal),
+                @"type": param.typeName ?: @"unknown",
+                @"override_present": @([self overrideStateFor:param] == RYGMCOverrideSet),
+            } mutableCopy];
+            if (config.name.length) row[@"config_name"] = config.name;
+            if (param.name.length) row[@"name"] = param.name;
+
+            id effective = [self liveValueFor:param];
+            if (RYGMCValueMatchesType(effective, param.type)) {
+                row[@"effective_present"] = @YES;
+                row[@"effective_value"] = effective;
+                effectiveCount++;
+            } else {
+                row[@"effective_present"] = @NO;
+            }
+
+            if ([row[@"override_present"] boolValue]) {
+                id value = [self overrideValueFor:param];
+                if (RYGMCValueMatchesType(value, param.type)) {
+                    row[@"override_value"] = value;
+                    overrideCount++;
+                } else {
+                    row[@"override_present"] = @NO;
+                }
+            }
+            [entries addObject:row.copy];
+        }
+    }
+    if (!entries.count) {
+        if (error) *error = RYGMCJSONError(@"Instagram's exported MobileConfig runtime table is unavailable.");
+        return nil;
+    }
+    NSDictionary *document = @{
+        @"schema": RYGMCRuntimeSnapshotSchemaV1,
+        @"created_at": @([[NSDate date] timeIntervalSince1970]),
+        @"bundle_version": [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"",
+        @"runtime_parameter_count": @(entries.count),
+        @"effective_value_count": @(effectiveCount),
+        @"override_count": @(overrideCount),
+        @"import_policy": @"restore_explicit_overrides_only",
+        @"entries": entries,
+    };
+    return [NSJSONSerialization dataWithJSONObject:document options:0 error:error];
+}
+
+- (BOOL)ryg_importRuntimeSnapshotOverridesData:(NSData *)data
+                                   appliedCount:(NSUInteger *)appliedCount
+                                          error:(NSError **)error {
+    if (appliedCount) *appliedCount = 0;
+    id parsed = data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:error] : nil;
+    if (![parsed isKindOfClass:NSDictionary.class] ||
+        ![parsed[@"schema"] isEqualToString:RYGMCRuntimeSnapshotSchemaV1] ||
+        ![parsed[@"entries"] isKindOfClass:NSArray.class]) {
+        if (error && !*error) *error = RYGMCJSONError(@"This is not a RyukGram typed runtime snapshot.");
+        return NO;
+    }
+
+    [self prepare];
+    NSMutableDictionary<NSString *, RYGMCParam *> *paramsByPID = [NSMutableDictionary dictionary];
+    NSMutableArray<RYGMCParam *> *allRuntimeParams = [NSMutableArray array];
+    for (RYGMCConfig *config in self.allConfigs) for (RYGMCParam *param in config.params) {
+        if (!param.isRuntimeBacked || !param.paramID || !RYGMCTypeIsRuntimeValue(param.type)) continue;
+        paramsByPID[[NSString stringWithFormat:@"%llu", param.paramID]] = param;
+        [allRuntimeParams addObject:param];
+    }
+
+    NSMutableArray<NSDictionary *> *actions = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (id candidate in parsed[@"entries"]) {
+        if (![candidate isKindOfClass:NSDictionary.class]) {
+            if (error) *error = RYGMCJSONError(@"Runtime snapshot contains a non-object entry.");
+            return NO;
+        }
+        NSDictionary *row = candidate;
+        NSString *pid = [row[@"pid"] isKindOfClass:NSString.class] ? row[@"pid"] : nil;
+        NSNumber *present = [row[@"override_present"] isKindOfClass:NSNumber.class] ? row[@"override_present"] : nil;
+        NSNumber *configNumber = [row[@"config"] isKindOfClass:NSNumber.class] ? row[@"config"] : nil;
+        NSNumber *paramIndex = [row[@"param"] isKindOfClass:NSNumber.class] ? row[@"param"] : nil;
+        NSNumber *ordinal = [row[@"ordinal"] isKindOfClass:NSNumber.class] ? row[@"ordinal"] : nil;
+        unsigned long long parsedPID = 0;
+        NSString *canonicalPID = nil;
+        if (RYGMCParseUnsigned(pid, UINT64_MAX, &parsedPID) && parsedPID)
+            canonicalPID = [NSString stringWithFormat:@"%llu", parsedPID];
+        if (!canonicalPID.length || ![pid isEqualToString:canonicalPID] || !present ||
+            !configNumber || !paramIndex || !ordinal || [seen containsObject:canonicalPID]) {
+            if (error) *error = RYGMCJSONError(@"Runtime snapshot contains an invalid or duplicate PID.");
+            return NO;
+        }
+        [seen addObject:canonicalPID];
+        if (!present.boolValue) continue;
+        RYGMCParam *param = paramsByPID[canonicalPID];
+        if (!param) continue; // A later Instagram build may no longer expose it.
+        NSString *type = [row[@"type"] isKindOfClass:NSString.class] ? row[@"type"] : nil;
+        id value = row[@"override_value"];
+        BOOL identityMatches = configNumber.unsignedLongLongValue == param.configNumber &&
+                               paramIndex.unsignedLongLongValue == param.paramIndex &&
+                               ordinal.unsignedLongLongValue == param.ordinal;
+        if (!identityMatches || ![type isEqualToString:param.typeName] || !RYGMCValueMatchesType(value, param.type)) {
+            if (error) *error = RYGMCJSONError([NSString stringWithFormat:@"Identity/type mismatch for runtime PID %@.", canonicalPID]);
+            return NO;
+        }
+        [actions addObject:@{@"param":param, @"value":value}];
+    }
+
+    NSMutableArray<NSDictionary *> *previous = [NSMutableArray array];
+    for (RYGMCParam *param in allRuntimeParams) {
+        if ([self overrideStateFor:param] != RYGMCOverrideSet) continue;
+        id value = [self overrideValueFor:param];
+        if (RYGMCValueMatchesType(value, param.type)) [previous addObject:@{@"param":param, @"value":value}];
+    }
+
+    [self resetAllOverrides];
+    NSUInteger applied = 0;
+    for (NSDictionary *action in actions) {
+        if (![self setOverride:action[@"value"] for:action[@"param"]]) {
+            [self resetAllOverrides];
+            for (NSDictionary *old in previous) (void)[self setOverride:old[@"value"] for:old[@"param"]];
+            [self reapplyOverridesToNativeTable];
+            if (error) *error = RYGMCJSONError(@"Could not apply the snapshot; the previous override set was restored.");
+            return NO;
+        }
+        applied++;
+    }
+    [self reapplyOverridesToNativeTable];
+    if (appliedCount) *appliedCount = applied;
+    return YES;
 }
 
 @end

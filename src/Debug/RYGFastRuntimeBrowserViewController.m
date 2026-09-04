@@ -1,11 +1,14 @@
 #import "RYGFastRuntimeBrowserViewController.h"
 #import "RYGRuntimeBrowserEngine.h"
 #import "RYGRuntimeLiveObserver.h"
+#import "RYGRuntimeValueStore.h"
 #import "../UI/RYGLiquidGlass.h"
 #import "../UI/RYGPopupChrome.h"
 #import "../Utils.h"
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
+#include <math.h>
+#include <stdlib.h>
 
 static NSString *const kRYGRuntimeSelectedImageKey = @"ryg_runtime_browser_selected_image_v2";
 
@@ -67,6 +70,18 @@ static BOOL RYGBrowserMatches(NSString *text, NSArray<NSString *> *tokens) {
         if (!matched) return NO;
     }
     return YES;
+}
+
+static NSString *RYGBrowserEditableObjectText(id value) {
+    if (!value || value == NSNull.null) return @"nil";
+    if ([value isKindOfClass:NSString.class]) return value;
+    if ([value isKindOfClass:NSNumber.class]) return [value description] ?: @"0";
+    if ([NSJSONSerialization isValidJSONObject:value]) {
+        NSData *data = [NSJSONSerialization dataWithJSONObject:value options:NSJSONWritingPrettyPrinted error:nil];
+        NSString *json = data.length ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+        if (json.length) return json;
+    }
+    return [value description] ?: @"";
 }
 
 // First stage is intentionally class names only. Methods are not indexed until needed.
@@ -134,7 +149,7 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
     self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.searchController.searchResultsUpdater = self;
     self.searchController.obscuresBackgroundDuringPresentation = NO;
-    self.searchController.searchBar.placeholder = @"BOOL selector or ABI";
+    self.searchController.searchBar.placeholder = @"Selector, type or ABI";
     self.searchController.searchBar.text = self.initialQuery;
     self.navigationItem.searchController = self.searchController;
     self.navigationItem.hidesSearchBarWhenScrolling = NO;
@@ -142,6 +157,10 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
     self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
     [self.spinner startAnimating];
     self.tableView.backgroundView = self.spinner;
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Apply"
+                                                                               style:UIBarButtonItemStyleDone
+                                                                              target:self
+                                                                              action:@selector(applyPersistedRuntimeValues)];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(nativeChanged:) name:RYGRuntimeNativeValueDidChangeNotification object:nil];
     RYGLiquidGlassApplyToViewController(self);
     [self loadMembers];
@@ -194,7 +213,127 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     (void)tableView; (void)section;
-    return [NSString stringWithFormat:@"%lu ABI-validated BOOL methods", (unsigned long)self.visibleMembers.count];
+    return [NSString stringWithFormat:@"%lu ABI-validated runtime getters", (unsigned long)self.visibleMembers.count];
+}
+
+- (void)applyPersistedRuntimeValues {
+    [RYGRuntimeBrowserEngine reinstallPersistedOverrides];
+    NSUInteger installed = RYGRuntimeValueReinstallPersistedHooks();
+    NSUInteger persisted = RYGRuntimeValueAllOverrideSpecs().count;
+    [RYGUtils showToastForDuration:1.3 title:@"Runtime overrides applied"
+                          subtitle:[NSString stringWithFormat:@"%lu/%lu typed hooks installed",
+                                    (unsigned long)installed, (unsigned long)persisted]];
+    [self.tableView reloadData];
+}
+
+- (NSString *)typedOverrideSummary:(RYGRuntimeMemberRow *)member {
+    BOOL meta = member.kind == RYGRuntimeMemberClassMethod;
+    if (!RYGRuntimeValueHasOverride(member.className, member.name, meta))
+        return RYGRuntimeValueTypeName(member.valueTypeCode) ?: @"value";
+    id value = RYGRuntimeValueOverride(member.className, member.name, meta);
+    if (!value) return @"Forced nil";
+    NSString *description = [value description] ?: @"";
+    if (description.length > 36) description = [[description substringToIndex:36] stringByAppendingString:@"…"];
+    return [NSString stringWithFormat:@"Forced %@", description];
+}
+
+- (void)showTypedReadForMember:(RYGRuntimeMemberRow *)member {
+    BOOL meta = member.kind == RYGRuntimeMemberClassMethod;
+    id raw = nil;
+    NSString *value = RYGRuntimeValueRead(member.className, member.name, meta, nil, &raw);
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:member.name
+                                                                   message:value
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Copy" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        UIPasteboard.generalPasteboard.string = value ?: @"";
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (id)typedValueFromText:(NSString *)text type:(NSString *)type valid:(BOOL *)valid {
+    if (valid) *valid = NO;
+    NSString *trim = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+    if (RYGRuntimeValueTypeIsSignedInteger(type)) {
+        const char *raw = trim.UTF8String; char *end = NULL; long long value = raw ? strtoll(raw, &end, 10) : 0;
+        if (raw && end != raw && *end == '\0') { if (valid) *valid = YES; return @(value); }
+        return nil;
+    }
+    if (RYGRuntimeValueTypeIsUnsignedInteger(type)) {
+        if ([trim hasPrefix:@"-"]) return nil;
+        const char *raw = trim.UTF8String; char *end = NULL; unsigned long long value = raw ? strtoull(raw, &end, 10) : 0;
+        if (raw && end != raw && *end == '\0') { if (valid) *valid = YES; return @(value); }
+        return nil;
+    }
+    if (RYGRuntimeValueTypeIsFloatingPoint(type)) {
+        const char *raw = trim.UTF8String; char *end = NULL; double value = raw ? strtod(raw, &end) : 0;
+        if (raw && end != raw && *end == '\0' && isfinite(value)) { if (valid) *valid = YES; return @(value); }
+        return nil;
+    }
+    if (RYGRuntimeValueTypeIsObject(type)) {
+        if ([trim.lowercaseString isEqualToString:@"null"] || [trim.lowercaseString isEqualToString:@"nil"]) {
+            if (valid) *valid = YES;
+            return nil;
+        }
+        NSData *data = [trim dataUsingEncoding:NSUTF8StringEncoding];
+        id json = data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if (json) { if (valid) *valid = YES; return json; }
+        if (valid) *valid = YES;
+        return text ?: @"";
+    }
+    return nil;
+}
+
+- (void)presentTypedEditorForMember:(RYGRuntimeMemberRow *)member {
+    BOOL meta = member.kind == RYGRuntimeMemberClassMethod;
+    BOOL had = RYGRuntimeValueHasOverride(member.className, member.name, meta);
+    id current = had ? RYGRuntimeValueOverride(member.className, member.name, meta) : nil;
+    NSString *initial = current ? RYGBrowserEditableObjectText(current) : (had ? @"nil" : @"");
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:member.name
+                                                                   message:[NSString stringWithFormat:@"%@ · %@ method",
+                                                                            RYGRuntimeValueTypeName(member.valueTypeCode) ?: member.valueTypeCode,
+                                                                            meta ? @"class" : @"instance"]
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.text = initial;
+        if (!RYGRuntimeValueTypeIsObject(member.valueTypeCode)) field.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
+        field.placeholder = RYGRuntimeValueTypeIsObject(member.valueTypeCode) ? @"String, JSON, or nil" : @"Typed value";
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    if (had) [alert addAction:[UIAlertAction actionWithTitle:@"Use Native" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        RYGRuntimeValueClearOverride(member.className, member.name, meta);
+        [self.tableView reloadData];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Persist + Apply" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        BOOL valid = NO;
+        id value = [self typedValueFromText:alert.textFields.firstObject.text type:member.valueTypeCode valid:&valid];
+        if (!valid) { [RYGUtils showErrorHUDWithDescription:@"Value does not match the getter ABI"]; return; }
+        RYGRuntimeValueSetOverride(member.className, member.name, meta, member.valueTypeCode, value);
+        BOOL installed = RYGRuntimeValueInstallHook(member.className, member.name, meta, member.valueTypeCode);
+        [RYGUtils showToastForDuration:1.2 title:installed ? @"Typed override applied" : @"Override persisted"
+                              subtitle:installed ? nil : @"Exact hook is pending; use Apply after the image loads"];
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (UIButton *)buttonForTypedMember:(RYGRuntimeMemberRow *)member {
+    BOOL meta = member.kind == RYGRuntimeMemberClassMethod;
+    BOOL had = RYGRuntimeValueHasOverride(member.className, member.name, meta);
+    __weak typeof(self) weakSelf = self;
+    NSMutableArray<UIMenuElement *> *actions = [NSMutableArray array];
+    if (meta) [actions addObject:[UIAction actionWithTitle:@"Read current value" image:[UIImage systemImageNamed:@"eye"] identifier:nil handler:^(__unused UIAction *action) { [weakSelf showTypedReadForMember:member]; }]];
+    [actions addObject:[UIAction actionWithTitle:@"Edit typed override" image:[UIImage systemImageNamed:@"pencil"] identifier:nil handler:^(__unused UIAction *action) { [weakSelf presentTypedEditorForMember:member]; }]];
+    if (had) [actions addObject:[UIAction actionWithTitle:@"Use Native" image:nil identifier:nil handler:^(__unused UIAction *action) { RYGRuntimeValueClearOverride(member.className, member.name, meta); [weakSelf.tableView reloadData]; }]];
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.menu = [UIMenu menuWithTitle:member.name ?: @"Runtime value" children:actions];
+    button.showsMenuAsPrimaryAction = YES;
+    RYGLiquidGlassConfigureButton(button, NO);
+    UIButtonConfiguration *configuration = button.configuration;
+    NSString *title = [self typedOverrideSummary:member];
+    if (configuration) { configuration.title = title; configuration.baseForegroundColor = UIColor.labelColor; button.configuration = configuration; }
+    else [button setTitle:title forState:UIControlStateNormal];
+    return button;
 }
 
 - (UIButton *)buttonForMethod:(RYGRuntimeBoolMethod *)method {
@@ -248,12 +387,20 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
     cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", member.classMember ? @"+" : @"−", member.name ?: @""];
     cell.textLabel.font = [UIFont monospacedSystemFontOfSize:12.5 weight:UIFontWeightMedium];
     cell.textLabel.numberOfLines = 2;
-    cell.detailTextLabel.text = member.typeEncoding ?: @"";
+    NSString *valueType = member.hookableValue ? (RYGRuntimeValueTypeName(member.valueTypeCode) ?: member.valueTypeCode) : @"BOOL";
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ · %@", valueType ?: @"value", member.typeEncoding ?: @""];
     cell.detailTextLabel.font = [UIFont monospacedSystemFontOfSize:10.5 weight:UIFontWeightRegular];
     cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
-    cell.accessoryView = method ? [self buttonForMethod:method] : nil;
+    cell.accessoryView = method ? [self buttonForMethod:method] : (member.hookableValue ? [self buttonForTypedMember:member] : nil);
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    RYGRuntimeMemberRow *member = self.visibleMembers[(NSUInteger)indexPath.row];
+    if ([RYGRuntimeBrowserEngine boolMethodForMember:member] || !member.hookableValue) return;
+    [self presentTypedEditorForMember:member];
 }
 
 @end
@@ -346,7 +493,7 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
     self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.searchController.searchResultsUpdater = self;
     self.searchController.obscuresBackgroundDuringPresentation = NO;
-    self.searchController.searchBar.placeholder = @"Class or BOOL selector";
+    self.searchController.searchBar.placeholder = @"Class, selector or typed getter";
     self.searchController.searchBar.text = self.initialQuery;
     self.navigationItem.searchController = self.searchController;
     self.navigationItem.hidesSearchBarWhenScrolling = NO;
@@ -358,11 +505,12 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
     self.emptyLabel.textColor = UIColor.secondaryLabelColor;
 
     UIBarButtonItem *refresh = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"arrow.clockwise"] style:UIBarButtonItemStylePlain target:self action:@selector(refreshTapped)];
+    UIBarButtonItem *apply = [[UIBarButtonItem alloc] initWithTitle:@"Apply" style:UIBarButtonItemStyleDone target:self action:@selector(applyAllPersistedRuntimeValues)];
     if (self.allowsBulkVisibilityOverride) {
         UIBarButtonItem *reveal = [[UIBarButtonItem alloc] initWithTitle:@"Reveal All" style:UIBarButtonItemStylePlain target:self action:@selector(revealAllVisibilityRows)];
-        self.navigationItem.rightBarButtonItems = @[refresh, reveal];
+        self.navigationItem.rightBarButtonItems = @[refresh, apply, reveal];
     } else {
-        self.navigationItem.rightBarButtonItem = refresh;
+        self.navigationItem.rightBarButtonItems = @[refresh, apply];
     }
 
     [self refreshImages];
@@ -413,7 +561,7 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
 - (void)modeChanged:(UISegmentedControl *)sender {
     (void)sender;
     self.searchGeneration++;
-    self.searchController.searchBar.placeholder = self.modeControl.selectedSegmentIndex == RYGRuntimeBrowserModeObjectiveC ? @"Class or BOOL selector" : @"C symbol";
+    self.searchController.searchBar.placeholder = self.modeControl.selectedSegmentIndex == RYGRuntimeBrowserModeObjectiveC ? @"Class, selector or typed getter" : @"C symbol";
     [self loadSelectedImage];
 }
 
@@ -422,6 +570,18 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
     [self refreshImages];
     [self rebuildImageMenu];
     [self loadSelectedImage];
+}
+
+- (void)applyAllPersistedRuntimeValues {
+    [RYGRuntimeBrowserEngine reinstallPersistedOverrides];
+    NSUInteger installed = RYGRuntimeValueReinstallPersistedHooks();
+    NSUInteger persisted = RYGRuntimeValueAllOverrideSpecs().count;
+    [RYGUtils showToastForDuration:1.3
+                             title:@"Runtime hooks applied"
+                          subtitle:[NSString stringWithFormat:@"%lu/%lu typed hooks installed",
+                                    (unsigned long)installed,
+                                    (unsigned long)persisted]];
+    [self.tableView reloadData];
 }
 
 - (void)loadSelectedImage {
@@ -506,7 +666,7 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
     for (RYGRuntimeClassRow *row in self.classRows) if (RYGBrowserMatches(row.className ?: @"", tokens)) [classNameMatches addObject:row];
     self.visibleClasses = classNameMatches.copy;
     self.selectorMatches = @{};
-    self.emptyLabel.text = @"Searching BOOL selectors in this image…";
+    self.emptyLabel.text = @"Searching ABI-validated selectors in this image…";
     self.tableView.backgroundView = self.visibleClasses.count ? nil : self.emptyLabel;
     [self.tableView reloadData];
 
@@ -559,7 +719,7 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
             }];
             self.selectorMatches = matches.copy;
             self.visibleClasses = visible.copy;
-            self.emptyLabel.text = @"No class or ABI-validated BOOL selector matched this image.";
+            self.emptyLabel.text = @"No class or ABI-validated runtime getter matched this image.";
             self.tableView.backgroundView = self.visibleClasses.count ? nil : self.emptyLabel;
             [self.tableView reloadData];
         });
@@ -612,7 +772,7 @@ static NSArray<RYGRuntimeClassRow *> *RYGBrowserClassNamesForImage(NSString *ima
         cell.textLabel.text = row.className;
         cell.textLabel.font = [UIFont monospacedSystemFontOfSize:13.0 weight:UIFontWeightMedium];
         NSUInteger matchCount = self.selectorMatches[row.className].count;
-        cell.detailTextLabel.text = matchCount ? [NSString stringWithFormat:@"%lu matching BOOL selector(s)", (unsigned long)matchCount] : @"Tap to inspect this class only";
+        cell.detailTextLabel.text = matchCount ? [NSString stringWithFormat:@"%lu matching runtime getter(s)", (unsigned long)matchCount] : @"Tap to inspect this class only";
     } else {
         RYGMachOSymbol *symbol = self.visibleSymbols[(NSUInteger)indexPath.row];
         cell.textLabel.text = symbol.name;

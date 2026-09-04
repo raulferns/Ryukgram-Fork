@@ -14,6 +14,8 @@ typedef NS_ENUM(NSInteger, RYGMCNameMappingImportMode) {
     RYGMCNameMappingImportModeMerge,
 };
 
+FOUNDATION_EXPORT NSString *const RYGMCRuntimeSnapshotSchemaV1;
+
 @interface RYGMobileConfig (RYGJSONIO)
 - (nullable NSString *)ryg_nativeDataDirectory;
 - (nullable NSString *)ryg_nativeNameMappingPath;
@@ -27,6 +29,15 @@ typedef NS_ENUM(NSInteger, RYGMCNameMappingImportMode) {
                            appliedCount:(NSUInteger *)appliedCount
                                   error:(NSError **)error;
 - (nullable NSData *)ryg_exportOverridesData:(NSError **)error;
+/// Exports every typed row from Instagram's live table together with its
+/// effective value and any RyukGram-owned override. Names are decoration only.
+- (nullable NSData *)ryg_exportRuntimeSnapshotData:(NSError **)error;
+/// Restores only the explicit override set recorded in a runtime snapshot. The
+/// effective/server values in the file are diagnostic and are never mass-forced.
+- (BOOL)ryg_importRuntimeSnapshotOverridesData:(NSData *)data
+                                   appliedCount:(NSUInteger *)appliedCount
+                                          error:(NSError **)error;
+- (BOOL)ryg_isRuntimeSnapshotData:(NSData *)data;
 @end
 
 /// Persistence-to-native bridge kept separate from JSON parsing/import. It has

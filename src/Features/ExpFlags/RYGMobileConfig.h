@@ -48,8 +48,8 @@ typedef NS_ENUM(NSInteger, RYGMCOverrideState) {
 @property (nonatomic, readonly) NSUInteger namedConfigCount;
 
 - (void)prepare;
-/// Rebuilds the browser model as the union of Instagram's live parameter table
-/// and the authoritative imported/on-disk id_name_mapping catalog.
+/// Rebuilds the browser from Instagram's live exported parameter table. A cached
+/// id/name catalog may decorate matching rows, but never creates runtime values.
 - (void)reloadFromRuntime;
 - (NSArray<RYGMCConfig *> *)allConfigs;
 - (NSArray<RYGMCConfig *> *)configsMatching:(NSString *)query onlyOverridden:(BOOL)onlyOverridden;

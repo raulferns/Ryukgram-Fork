@@ -14,8 +14,6 @@ static const void *kRYGFastMCParamKey = &kRYGFastMCParamKey;
 
 typedef NS_ENUM(NSInteger, RYGFastMCImportOperation) {
     RYGFastMCImportNone = 0,
-    RYGFastMCImportNamesReplace,
-    RYGFastMCImportNamesMerge,
     RYGFastMCImportOverrides,
 };
 
@@ -181,10 +179,9 @@ static NSString *RYGFastMCConfigKey(unsigned int configNumber) {
         }
     }
 
-    NSData *data = [NSJSONSerialization dataWithJSONObject:next options:0 error:error];
-    if (!data) return NO;
-    NSString *nativePath = [RYGMobileConfig.shared ryg_nativeOverridesJSONPath];
-    if (nativePath.length && ![data writeToFile:nativePath options:NSDataWritingAtomic error:error]) return NO;
+    // The JSON document is an import/export snapshot only. The effective writer
+    // is FBMobileConfigStartupConfigs plus RyukGram's typed persisted store; do
+    // not overwrite Instagram's C++-owned mc_overrides.json.
     self.root = next;
     [self rebuildIndexes];
     return YES;
@@ -239,6 +236,8 @@ static RYGFastMCValueType RYGFastMCTypeForParam(RYGMCParam *param, NSString *doc
 @property (nonatomic, assign) NSUInteger searchGeneration;
 @property (nonatomic, assign) BOOL loading;
 @property (nonatomic, assign) RYGFastMCImportOperation pendingImport;
+- (void)exportRuntimeSnapshot;
+- (void)exportPortableOverrides;
 @end
 
 @implementation RYGFastMobileConfigBrowserViewController
@@ -247,7 +246,7 @@ static RYGFastMCValueType RYGFastMCTypeForParam(RYGMCParam *param, NSString *doc
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"MobileConfig";
+    self.title = @"ABProps Runtime";
     self.scope = RYGFastMCScopeAll;
     self.view.backgroundColor = [RYGPopupChrome backgroundColor];
     self.tableView.backgroundColor = [RYGPopupChrome backgroundColor];
@@ -286,14 +285,12 @@ static RYGFastMCValueType RYGFastMCTypeForParam(RYGMCParam *param, NSString *doc
 
 - (UIMenu *)toolsMenu {
     __weak typeof(self) weakSelf=self;
-    UIAction *apply=[UIAction actionWithTitle:@"Apply overrides" image:[UIImage systemImageNamed:@"checkmark.circle"] identifier:nil handler:^(__unused UIAction *a){ [RYGMobileConfig.shared reapplyOverridesToNativeTable]; [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory]; [RYGUtils showToastForDuration:1.0 title:@"Overrides applied" subtitle:nil]; }];
-    UIAction *exportOverrides=[UIAction actionWithTitle:@"Export mc_overrides.json" image:[UIImage systemImageNamed:@"square.and.arrow.up"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf exportDataKind:NO]; }];
-    UIAction *exportNames=[UIAction actionWithTitle:@"Export id_name_mapping.json" image:[UIImage systemImageNamed:@"square.and.arrow.up"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf exportDataKind:YES]; }];
-    UIAction *importOverrides=[UIAction actionWithTitle:@"Import mc_overrides.json" image:[UIImage systemImageNamed:@"square.and.arrow.down"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf presentPicker:RYGFastMCImportOverrides]; }];
-    UIAction *importNames=[UIAction actionWithTitle:@"Import / replace IDs" image:[UIImage systemImageNamed:@"square.and.arrow.down"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf presentPicker:RYGFastMCImportNamesReplace]; }];
-    UIAction *mergeNames=[UIAction actionWithTitle:@"Import / merge IDs" image:[UIImage systemImageNamed:@"arrow.triangle.merge"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf presentPicker:RYGFastMCImportNamesMerge]; }];
-    UIAction *update=[UIAction actionWithTitle:@"Update IDs / rematch runtime" image:[UIImage systemImageNamed:@"arrow.clockwise"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf loadModel:YES]; }];
-    return [UIMenu menuWithTitle:@"MobileConfig" children:@[apply,[UIMenu menuWithTitle:@"Import" children:@[importOverrides,importNames,mergeNames]],[UIMenu menuWithTitle:@"Export" children:@[exportOverrides,exportNames]],update]];
+    UIAction *apply=[UIAction actionWithTitle:@"Apply typed overrides" image:[UIImage systemImageNamed:@"checkmark.circle"] identifier:nil handler:^(__unused UIAction *a){ [RYGMobileConfig.shared reapplyOverridesToNativeTable]; [RYGUtils showToastForDuration:1.0 title:@"Runtime overrides applied" subtitle:@"StartupConfigs + persisted hook store"]; }];
+    UIAction *exportSnapshot=[UIAction actionWithTitle:@"Export current runtime configuration" image:[UIImage systemImageNamed:@"square.and.arrow.up"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf exportRuntimeSnapshot]; }];
+    UIAction *exportOverrides=[UIAction actionWithTitle:@"Export active typed overrides" image:[UIImage systemImageNamed:@"doc"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf exportPortableOverrides]; }];
+    UIAction *importOverrides=[UIAction actionWithTitle:@"Import runtime snapshot / overrides" image:[UIImage systemImageNamed:@"square.and.arrow.down"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf presentPicker:RYGFastMCImportOverrides]; }];
+    UIAction *update=[UIAction actionWithTitle:@"Rescan runtime table" image:[UIImage systemImageNamed:@"arrow.clockwise"] identifier:nil handler:^(__unused UIAction *a){ [weakSelf loadModel:YES]; }];
+    return [UIMenu menuWithTitle:@"ABProps / MobileConfig Runtime" children:@[apply,importOverrides,exportSnapshot,exportOverrides,update]];
 }
 
 - (void)shareData:(NSData *)data name:(NSString *)name {
@@ -304,10 +301,28 @@ static RYGFastMCValueType RYGFastMCTypeForParam(RYGMCParam *param, NSString *doc
     [self presentViewController:vc animated:YES completion:nil];
 }
 
-- (void)exportDataKind:(BOOL)names {
-    [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory]; NSError *error=nil; NSData *data=names ? [RYGMobileConfig.shared ryg_exportNameMappingData:&error] : [RYGMobileConfig.shared ryg_exportOverridesData:&error];
+- (void)exportPortableOverrides {
+    NSError *error=nil; NSData *data=[RYGMobileConfig.shared ryg_exportOverridesData:&error];
     if (!data.length) { [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"Nothing to export"]; return; }
-    [self shareData:data name:names ? @"id_name_mapping.json" : @"mc_overrides.json"];
+    [self shareData:data name:@"ryukgram_mobileconfig_runtime_overrides.json"];
+}
+
+- (void)exportRuntimeSnapshot {
+    [RYGUtils showToastForDuration:1.0 title:@"Reading runtime configuration" subtitle:@"Export continues in the background"];
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSError *error = nil;
+        NSData *data = [RYGMobileConfig.shared ryg_exportRuntimeSnapshotData:&error];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) self = weakSelf;
+            if (!self) return;
+            if (!data.length) {
+                [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"No runtime configuration is available"];
+                return;
+            }
+            [self shareData:data name:@"ryukgram_mobileconfig_runtime_snapshot.json"];
+        });
+    });
 }
 
 - (void)presentPicker:(RYGFastMCImportOperation)operation { self.pendingImport=operation; UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeJSON] asCopy:YES]; picker.delegate=self; picker.allowsMultipleSelection=NO; [self presentViewController:picker animated:YES completion:nil]; }
@@ -316,10 +331,17 @@ static RYGFastMCValueType RYGFastMCTypeForParam(RYGMCParam *param, NSString *doc
     (void)controller; NSURL *url=urls.firstObject; RYGFastMCImportOperation op=self.pendingImport; self.pendingImport=RYGFastMCImportNone; if (!url) return;
     BOOL access=[url startAccessingSecurityScopedResource]; NSError *error=nil; NSData *data=[NSData dataWithContentsOfURL:url options:0 error:&error]; if (access) [url stopAccessingSecurityScopedResource];
     if (!data.length) { [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"Could not read JSON"]; return; }
-    if (op==RYGFastMCImportOverrides) { NSUInteger applied=0; if (![RYGMobileConfig.shared ryg_importAndApplyOverridesData:data appliedCount:&applied error:&error]) { [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"Override import failed"]; return; } [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory]; [RYGUtils showToastForDuration:1.0 title:@"Overrides imported" subtitle:[NSString stringWithFormat:@"%lu applied",(unsigned long)applied]]; [self loadModel:NO]; return; }
-    RYGMCNameMappingImportMode mode=op==RYGFastMCImportNamesMerge ? RYGMCNameMappingImportModeMerge : RYGMCNameMappingImportModeReplace;
-    if (![RYGMobileConfig.shared ryg_importNameMappingData:data mode:mode error:&error]) { [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"ID mapping import failed"]; return; }
-    [RYGMobileConfig.shared ryg_syncPersistedJSONToNativeDataDirectory]; [self loadModel:YES];
+    if (op!=RYGFastMCImportOverrides) return;
+    NSUInteger applied=0;
+    BOOL snapshot=[RYGMobileConfig.shared ryg_isRuntimeSnapshotData:data];
+    BOOL imported=snapshot
+        ? [RYGMobileConfig.shared ryg_importRuntimeSnapshotOverridesData:data appliedCount:&applied error:&error]
+        : [RYGMobileConfig.shared ryg_importAndApplyOverridesData:data appliedCount:&applied error:&error];
+    if (!imported) { [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"Override import failed"]; return; }
+    [RYGUtils showToastForDuration:1.0
+                             title:snapshot ? @"Runtime snapshot imported" : @"Canonical overrides imported"
+                          subtitle:[NSString stringWithFormat:@"%lu typed override(s) applied",(unsigned long)applied]];
+    [self loadModel:NO];
 }
 
 - (void)forceReload { [self loadModel:YES]; }
@@ -448,11 +470,11 @@ static RYGFastMCValueType RYGFastMCTypeForParam(RYGMCParam *param, NSString *doc
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { (void)tableView; (void)section; return self.visibleParams.count; }
-- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section { (void)tableView; (void)section; return @"Seen is recorded only by Instagram's real MobileConfig getter calls. Values are read only for visible detail rows. Edits update canonical mc_overrides.json and then apply through the validated native MobileConfig bridge when a runtime PID exists."; }
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section { (void)tableView; (void)section; return @"Rows come from Instagram's exported runtime parameter table. Names are optional labels. Edits persist by stable typed parameter ID and apply through StartupConfigs plus the exact getter hook owner; Instagram's C++ mc_overrides.json remains read-only."; }
 
 - (BOOL)setText:(NSString *)text forParam:(RYGMCParam *)param {
     NSError *error = nil; BOOL ok = [self.documentStore setValueText:text forParam:param error:&error];
-    if (!ok) [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"Could not update mc_overrides.json"];
+    if (!ok) [RYGUtils showErrorHUDWithDescription:error.localizedDescription ?: @"Could not update the typed runtime override"];
     else { if (self.documentDidChange) self.documentDidChange(); [self.tableView reloadData]; }
     return ok;
 }
